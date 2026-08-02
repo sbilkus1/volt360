@@ -60,11 +60,9 @@ jobs:
           cl %CFLAGS% /I"%MINIZDIR%" /c "%MINIZDIR%\miniz_zip.c" /Fominiz_zip.obj || exit /b 1
 
           echo [build] compiling test...
-          cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\tests\test_import.c" /Fotest_import.obj || exit /b 1
-          :: collect all .obj files except test_import.obj
-          set OBJS=
-          for %%g in (*.obj) do if /i not "%%g"=="test_import.obj" set OBJS=!OBJS! %%g
-          link /nologo /OUT:test_import.exe test_import.obj %OBJS% raylib.lib %LIBS% || exit /b 1
+          cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\tests\test_import.c" /Fot_runner.obj || exit /b 1
+          del main.obj 2>nul
+          link /nologo /OUT:test_import.exe t_runner.obj *.obj raylib.lib %LIBS% || exit /b 1
 
           echo [build] running tests...
           test_import.exe || exit /b 1
