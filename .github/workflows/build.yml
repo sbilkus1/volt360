@@ -82,3 +82,35 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: build/app.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential libasound2-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libglu1-mesa-dev libxcursor-dev libxinerama-dev libwayland-dev libxkbcommon-dev
+      - name: Clone raylib
+        run: git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git third_party/raylib
+      - name: Build
+        run: |
+          cd third_party/raylib/src
+          make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC
+          cd ../../build
+          gcc -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -DPLATFORM_DESKTOP -c $(find ../src -name "*.c" ! -name "main.c" ! -name "test_import.c")
+          gcc -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -c ../tests/test_import.c
+          gcc -o test_import *.o ../third_party/raylib/src/libraylib.a -lm -lpthread -ldl -lrt
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone raylib
+        run: git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git third_party/raylib
+      - name: Build
+        run: |
+          cd third_party/raylib/src
+          make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC
+          cd ../../build
+          clang -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -DPLATFORM_DESKTOP -c $(find ../src -name "*.c" ! -name "main.c" ! -name "test_import.c")
+          clang -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -c ../tests/test_import.c
+          clang -o test_import *.o ../third_party/raylib/src/libraylib.a -framework CoreVideo -framework IOKit -framework Cocoa -framework GLUT -framework OpenGL

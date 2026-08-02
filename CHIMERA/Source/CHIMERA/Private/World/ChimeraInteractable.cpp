@@ -17,6 +17,8 @@
 #include "Core/ChimeraTrading.h"
 #include "Core/ChimeraSuperhero.h"
 #include "Core/ChimeraIronMan.h"
+#include "Core/ChimeraWeapons.h"
+#include "Core/ChimeraArsenal.h"
 #include "Core/ChimeraQuests.h"
 #include "Minigames/ChimeraMinigames.h"
 #include "Character/ChimeraCharacter.h"
@@ -807,7 +809,30 @@ void AChimeraInteractable::OnInteract(AChimeraCharacter* C)
 				C->AddSkillXPByName(TEXT("Tech_Crafting"), 50);
 				Message = FString::Printf(TEXT("ARMOR: %s (%s). %s"), *A.Name, *A.Mark, *A.SpecialAbility);
 			}
-			else Message = FString::Printf(TEXT("%s (%s, %d) — %d cr\n%s\n%s"), *A.Name, *A.Era, A.Year, A.CreditCost, *A.SpecialAbility, *ChimeraIronMan::GetMissingForArmor(A.Id, Armors, TS));
+			else Message = FString::Printf(TEXT("%s (%s, %d) — %d cr\n%s"), *A.Name, *A.Era, A.Year, A.CreditCost, *A.SpecialAbility);
+		}
+		else if (StatKey == FName("weapon_craft"))
+		{
+			UWeaponSystem* WS = GetGameInstance()->GetSubsystem<UWeaponSystem>();
+			if (WS) { static int32 WI = 0; WI = (WI + 1) % WS->GetCatalog().Num(); if (WS->CraftWeapon(WS->GetCatalog()[WI].Id)) Message = FString::Printf(TEXT("Crafted: %s"), *WS->GetCatalog()[WI].Name); else Message = FString::Printf(TEXT("%s — %d credits. %s"), *WS->GetCatalog()[WI].Name, WS->GetCatalog()[WI].CreditCost, *WS->GetCatalog()[WI].Lore); }
+		}
+		else if (StatKey == FName("weapon_equip"))
+		{
+			UWeaponSystem* WS = GetGameInstance()->GetSubsystem<UWeaponSystem>();
+			if (WS) { static int32 WE = 0; WE = (WE + 1) % WS->GetCatalog().Num(); WS->Equip(WS->GetCatalog()[WE].Id); Message = FString::Printf(TEXT("Equipped: %s — %s"), *WS->GetCatalog()[WE].Name, *WS->GetCatalog()[WE].Special); }
+		}
+		else if (StatKey == FName("weapon_mod"))
+		{
+			UArsenalSubsystem* Ars = GetGameInstance()->GetSubsystem<UArsenalSubsystem>();
+			UWeaponSystem* WS = GetGameInstance()->GetSubsystem<UWeaponSystem>();
+			if (Ars && WS && !WS->GetEquippedWeapon().IsEmpty())
+			{
+				static int32 MI = 0; MI = (MI + 1) % Ars->GetModCatalog().Num();
+				if (Ars->InstallMod(WS->GetEquippedWeapon(), Ars->GetModCatalog()[MI].Id))
+					Message = FString::Printf(TEXT("Mod installed on %s: %s"), *WS->GetEquippedWeapon(), *Ars->GetModCatalog()[MI].Name);
+				else Message = FString::Printf(TEXT("Need %d credits for %s."), Ars->GetModCatalog()[MI].Cost, *Ars->GetModCatalog()[MI].Name);
+			}
+			else Message = TEXT("Equip a weapon first, then mod it here.");
 		}
 		else if (StatKey == FName("property"))
 		{

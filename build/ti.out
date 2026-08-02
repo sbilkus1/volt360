@@ -14,14 +14,14 @@
 [PASS] pcb has 1 fp + 2 tracks + 1 via R1
 
 == building zip in memory ==
-[PASS] zip writer init C:\Users\realc\AppData\Local\Temp\llama_test_145767234.zip
-[PASS] zip written C:\Users\realc\AppData\Local\Temp\llama_test_145767234.zip
+[PASS] zip writer init C:\Users\realc\AppData\Local\Temp\llama_test_146218546.zip
+[PASS] zip written C:\Users\realc\AppData\Local\Temp\llama_test_146218546.zip
 [PASS] zip import ok Imported 2 file(s) from zip
 [PASS] zip doc extracted (csv->doc) nested/data.csv
 [PASS] zip schematic extracted nested/sch/sample.kicad_sch
 
 == building minimal docx in memory ==
-[PASS] docx import ok Imported document llama_test_145767468
+[PASS] docx import ok Imported document llama_test_146218750
 [PASS] docx text parsed LM358 in text
 
 == design module ==
@@ -55,7 +55,7 @@ PCB 'sample': 1 footprint(s)
 [PASS] clock advanced dt=2s
 
 == STL export round-trip ==
-[PASS] stl write C:\Users\realc\AppData\Local\Temp\llama_test_145770484.stl
+[PASS] stl write C:\Users\realc\AppData\Local\Temp\llama_test_146222265.stl
 [PASS] stl read back binary stl
 
 == slicer ==
@@ -69,7 +69,7 @@ PCB 'sample': 1 footprint(s)
 [PASS] top layer solid solid_top_layers=3
 [PASS] poly_offset inset square 10mm square -1mm
 [PASS] inset width ~8mm 10mm - 2*1mm
-[PASS] gcode emit C:\Users\realc\AppData\Local\Temp\llama_test_145770750.gcode
+[PASS] gcode emit C:\Users\realc\AppData\Local\Temp\llama_test_146222609.gcode
 [PASS] gcode non-empty 
 [PASS] gcode has temps M109/M190
 [PASS] gcode has AMS tool T0-3 random tool
@@ -95,7 +95,7 @@ PCB 'sample': 1 footprint(s)
 [PASS] anomaly flags clean on cube healthy part
 [PASS] anomaly flags on empty result no layers
 [PASS] spaghetti detected on collapse sudden 40% drop
-[PASS] farm batch generated build\farm\batch_145771296.gcode
+[PASS] farm batch generated build\farm\batch_146223140.gcode
 [PASS] farm batch gcode non-empty 
 [PASS] farm batch job markers start/end
 [PASS] farm batch eject + release temp auto-eject
@@ -119,7 +119,7 @@ PCB 'sample': 1 footprint(s)
 [PASS] assembly places pcb inside enclosure co-design link
 [PASS] pcb raised onto standoffs z = floor+standoff+pcb/2
 [PASS] enclosure cad model findable sample
-[PASS] print designed enclosure (CAD->slicer) C:\Users\realc\AppData\Local\Temp\llama_test_145771765.gcode
+[PASS] print designed enclosure (CAD->slicer) C:\Users\realc\AppData\Local\Temp\llama_test_146223640.gcode
 [PASS] enclosure gcode written 
 [PASS] enclosure gcode temps 
 [PASS] print enclosure via pcb id 

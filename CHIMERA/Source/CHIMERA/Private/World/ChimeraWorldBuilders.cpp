@@ -207,6 +207,10 @@ void AChimeraWorld::BuildHub(UWorld* W)
 		PlaceInteractable(W, FVector(0, 1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Trading Post — buy/sell hero pieces"), EMinigameKind::COUNT, TEXT(""), FName("trade"), false);
 		PlaceInteractable(W, FVector(300, 1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Piece Market — buy individual blueprint pieces"), EMinigameKind::COUNT, TEXT(""), FName("piece_buy"), false);
 		PlaceInteractable(W, FVector(600, 1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Forge Station — craft hero blueprint"), EMinigameKind::COUNT, TEXT(""), FName("craft_blueprint"), false);
+		// Weapon forge and armory
+		PlaceInteractable(W, FVector(0, -1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Armory — craft legendary weapons"), EMinigameKind::COUNT, TEXT(""), FName("weapon_craft"), false);
+		PlaceInteractable(W, FVector(300, -1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Weapon Rack — equip your arsenal"), EMinigameKind::COUNT, TEXT(""), FName("weapon_equip"), false);
+		PlaceInteractable(W, FVector(600, -1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Gunsmith Bench — install weapon mods"), EMinigameKind::COUNT, TEXT(""), FName("weapon_mod"), false);
 	}
 }
 

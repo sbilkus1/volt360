@@ -61,9 +61,12 @@ public:
 	void StealthTakedown();
 
 	// --- Camera modes ---
-	void CycleCamera();                // V key — cycle through 7 views
+	void CycleCamera();
 	ECameraMode CurrentCamera = ECameraMode::ThirdPerson;
 	void ApplyCameraMode(ECameraMode Mode);
+
+	// --- Dual-wield ---
+	void ToggleDualWield();
 
 	// --- input state ---
 	bool bSprint = false;
@@ -106,4 +109,5 @@ private:
 	class UInputAction* IA_Dragon;
 	class UInputAction* IA_Takedown;
 	class UInputAction* IA_Camera;
+	class UInputAction* IA_DualWield;
 };

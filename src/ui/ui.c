@@ -89,6 +89,7 @@
 #include "../design/finish_feat.h"
 #include "../design/final_batch.h"
 #include "../design/complete_414.h"
+#include "../core/infra_414.h"
 #include "../analysis/spice.h"
 #include "../analysis/drc.h"
 #include "../analysis/pcbcalc.h"
@@ -2307,6 +2308,20 @@ static void draw_print(App *app, int x, int y, int w, int h) {
         CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
         if (cm && cm->mesh.valid) { char *sz = section_clip_plane_slider(&cm->mesh); free(app->status); app->status = sz; }
     }
+    // infrastructure row
+    act_y += 28;
+    if (ui_button("RBAC", fb_x, act_y, 44, 22))
+        { rbac_user_login("admin","admin123"); char *ar = rbac_active_users_report(); free(app->status); app->status = ar; }
+    if (ui_button("Role", fb_x + 50, act_y, 42, 22))
+        { char *rl = rbac_acl_report(); free(app->status); app->status = rl; }
+    if (ui_button("DScm", fb_x + 98, act_y, 44, 22))
+        { webcam_dshow_init(0); char *ds = webcam_dshow_status(); free(app->status); app->status = ds; }
+    if (ui_button("Clou", fb_x + 148, act_y, 42, 22))
+        { cloud_api_init("api.volt360.app","key-123"); char *cs = cloud_api_status(); free(app->status); app->status = cs; }
+    if (ui_button("Upld", fb_x + 196, act_y, 42, 22))
+        { cloud_api_init("api.volt360.app","key-123"); bool ok=cloud_api_upload("proj-1","{\"name\":\"test\"}"); free(app->status); app->status = str_dup(ok?"upload OK":"upload failed"); }
+    if (ui_button("CI", fb_x + 244, act_y, 32, 22))
+        { char *cp = ci_platform_report(); free(app->status); app->status = cp; }
     if (ui_button("5Axis", fb_x + 862, act_y, 50, 22)) {
         V3 pts[5] = {v3(10,10,0),v3(30,20,-2),v3(50,30,-5),v3(70,20,-2),v3(90,10,0)};
         V3 nrms[5] = {v3(0,0,1),v3(0,0,1),v3(0,0,1),v3(0,0,1),v3(0,0,1)};

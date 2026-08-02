@@ -2,6 +2,7 @@
 #include "Core/ChimeraSessionSubsystem.h"
 #include "Core/ChimeraRecords.h"
 #include "Core/ChimeraArc.h"
+#include "Core/ChimeraArsenal.h"
 #include "Core/ChimeraQuests.h"
 #include "Core/ChimeraEconomy.h"
 #include "Core/ChimeraWorldSim.h"
@@ -83,6 +84,7 @@ void AChimeraCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	Make(IA_Dragon, EInputActionValueType::Boolean, { EKeys::X });       // GDD 6.9 mount/unmount flight
 	Make(IA_Takedown, EInputActionValueType::Boolean, { EKeys::Q });      // GDD 6.2 non-lethal takedown
 	Make(IA_Camera, EInputActionValueType::Boolean, { EKeys::V });        // cycle camera views
+	Make(IA_DualWield, EInputActionValueType::Boolean, { EKeys::G });     // toggle dual-wield
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
@@ -107,7 +109,13 @@ void AChimeraCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		EIC->BindAction(IA_Dragon, ETriggerEvent::Triggered, this, &AChimeraCharacter::ToggleDragonFlight);
 		EIC->BindAction(IA_Takedown, ETriggerEvent::Triggered, this, &AChimeraCharacter::StealthTakedown);
 		EIC->BindAction(IA_Camera, ETriggerEvent::Triggered, this, &AChimeraCharacter::CycleCamera);
+		EIC->BindAction(IA_DualWield, ETriggerEvent::Triggered, this, &AChimeraCharacter::ToggleDualWield);
 	}
+}
+
+void AChimeraCharacter::ToggleDualWield()
+{
+	if (auto* Ars = GetGameInstance()->GetSubsystem<UArsenalSubsystem>()) Ars->ToggleDualWield();
 }
 
 void AChimeraCharacter::Tick(float DeltaTime)
@@ -217,6 +225,7 @@ void AChimeraCharacter::DealMeleeDamage()
 		AddSkillXPByName(TEXT("Combat_Stealth"), 15);
 	}
 	Dmg *= (Session ? Session->GetDamageMultiplier() : 1.f);
+	if (auto* Ars = GetGameInstance()->GetSubsystem<UArsenalSubsystem>()) Ars->AddWeaponXP(EWeaponClass::Sword, 5);
 	Focus->TakeHit(this, Dmg);
 	AddSkillXPByName(TEXT("Combat_Brawling"), 10);
 }
