@@ -19,6 +19,8 @@
 #include "Core/ChimeraIronMan.h"
 #include "Core/ChimeraWeapons.h"
 #include "Core/ChimeraArsenal.h"
+#include "Core/ChimeraLiving.h"
+#include "Core/ChimeraWorldLife.h"
 #include "Core/ChimeraQuests.h"
 #include "Minigames/ChimeraMinigames.h"
 #include "Character/ChimeraCharacter.h"
@@ -829,11 +831,42 @@ void AChimeraInteractable::OnInteract(AChimeraCharacter* C)
 			{
 				static int32 MI = 0; MI = (MI + 1) % Ars->GetModCatalog().Num();
 				if (Ars->InstallMod(WS->GetEquippedWeapon(), Ars->GetModCatalog()[MI].Id))
-					Message = FString::Printf(TEXT("Mod installed on %s: %s"), *WS->GetEquippedWeapon(), *Ars->GetModCatalog()[MI].Name);
-				else Message = FString::Printf(TEXT("Need %d credits for %s."), Ars->GetModCatalog()[MI].Cost, *Ars->GetModCatalog()[MI].Name);
+					Message = FString::Printf(TEXT("Mod: %s on %s"), *Ars->GetModCatalog()[MI].Name, *WS->GetEquippedWeapon());
+				else Message = FString::Printf(TEXT("Need %d credits."), Ars->GetModCatalog()[MI].Cost);
 			}
-			else Message = TEXT("Equip a weapon first, then mod it here.");
 		}
+		else if (StatKey == FName("sleep"))
+			{ GetGameInstance()->GetSubsystem<USleepSystem>()->Sleep(8); Message = TEXT("You sleep for 8 hours. Morning light fills the room."); }
+		else if (StatKey == FName("travel_train"))
+			{ auto* FT = GetGameInstance()->GetSubsystem<UFastTravel>(); if (FT) { static int32 TI = 1; TI = (TI + 1) % 15; const TCHAR* Rings[] = {TEXT("Nexus"),TEXT("Aether City"),TEXT("Mid-Wilshire"),TEXT("Seattle"),TEXT("Night City"),TEXT("Alagaesia"),TEXT("Panem"),TEXT("Cleveleys"),TEXT("VernetLesBains"),TEXT("Chicago"),TEXT("Mercy Heights"),TEXT("ChastainPark"),TEXT("NeoKingdom"),TEXT("MinecraftFrontier"),TEXT("GrandColiseum")}; FT->Travel(Rings[TI], ETravelType::Train); Message = FString::Printf(TEXT("Train to %s."), Rings[TI]); } }
+		else if (StatKey == FName("drink"))
+			{ auto* Bar = GetGameInstance()->GetSubsystem<UBarSubsystem>(); if (Bar) { static int32 DI = 0; DI = (DI + 1) % Bar->GetMenu().Num(); Bar->BuyDrink(Bar->GetMenu()[DI].Name); Message = TEXT("Cheers!"); } }
+		else if (StatKey == FName("karaoke"))
+			{ auto* Bar = GetGameInstance()->GetSubsystem<UBarSubsystem>(); if (Bar) Message = Bar->KaraokeSong(); }
+		else if (StatKey == FName("stocks"))
+			{ auto* ST = GetGameInstance()->GetSubsystem<UStockTrading>(); if (ST) { auto Q = ST->GetQuotes(); if (Q.Num() > 0) { Message = FString::Printf(TEXT("BAWSAQ: %s %.0f (%+.1f). Tip: %s"), *Q[0].Symbol, Q[0].Price, Q[0].Change, *Q[0].Tip); ST->BuyStock(Q[0].Symbol, 10); } } }
+		else if (StatKey == FName("dive"))
+			{ auto* UW = GetGameInstance()->GetSubsystem<UUnderwaterSystem>(); if (UW) { static int32 SI = 0; SI = (SI + 1) % UW->GetSites().Num(); if (UW->GetGear() == EDivingGear::None) UW->BuyGear(EDivingGear::Scuba); Message = UW->ExploreSite(UW->GetSites()[SI].Name); } }
+		else if (StatKey == FName("paramedic"))
+			{ auto* EJ = GetGameInstance()->GetSubsystem<UEmergencyJobs>(); if (EJ) { if (EJ->GetJob() == EEmergencyJob::None) EJ->StartJob(EEmergencyJob::Paramedic); else EJ->CompleteCall(); Message = EJ->GetCall().Victim + TEXT(" — go!"); } }
+		else if (StatKey == FName("firefighter"))
+			{ auto* EJ = GetGameInstance()->GetSubsystem<UEmergencyJobs>(); if (EJ) { if (EJ->GetJob() == EEmergencyJob::None) EJ->StartJob(EEmergencyJob::Firefighter); else EJ->CompleteCall(); Message = TEXT("Fire contained. Building saved."); } }
+		else if (StatKey == FName("hunting"))
+			{ auto* WL = GetGameInstance()->GetSubsystem<UWildlifeSystem>(); UChimeraSessionSubsystem* S = GetGameInstance()->GetSubsystem<UChimeraSessionSubsystem>(); Message = WL ? WL->Hunt(S ? StaticEnum<ERing>()->GetNameStringByValue((int64)S->CurrentRing) : TEXT("Alagaesia")) : TEXT(""); }
+		else if (StatKey == FName("legendary_fish"))
+			{ auto* WL = GetGameInstance()->GetSubsystem<UWildlifeSystem>(); UChimeraSessionSubsystem* Sess2 = GetGameInstance()->GetSubsystem<UChimeraSessionSubsystem>(); Message = WL ? WL->Fish(Sess2 ? StaticEnum<ERing>()->GetNameStringByValue((int64)Sess2->CurrentRing) : TEXT("Cleveleys"), true) : TEXT(""); }
+		else if (StatKey == FName("bank"))
+			{ auto* Bank = GetGameInstance()->GetSubsystem<UBankingSystem>(); if (Bank) { Bank->Deposit(5000); Message = Bank->GetLoanStatus(); } }
+		else if (StatKey == FName("aircraft"))
+			{ auto* Air = GetGameInstance()->GetSubsystem<UAircraftSystem>(); if (Air) { static int32 AI = 0; auto& C = Air->GetCatalog(); AI = (AI + 1) % C.Num(); if (Air->BuyAircraft(C[AI].Name)) Message = TEXT("Aircraft purchased!"); else Message = FString::Printf(TEXT("%s — %d credits. %s"), *C[AI].Name, C[AI].Cost, *C[AI].Special); } }
+		else if (StatKey == FName("tv_news"))
+			{ auto* TV = GetGameInstance()->GetSubsystem<UTVNewsSystem>(); if (TV) Message = TV->WatchNews(); }
+		else if (StatKey == FName("school"))
+			{ auto* Ed = GetGameInstance()->GetSubsystem<UEducationSystem>(); if (Ed) { static int32 CI = 0; CI = (CI + 1) % Ed->GetCourses().Num(); if (Ed->Enroll(Ed->GetCourses()[CI].Name)) Message = Ed->GetProgress(); else Message = TEXT("Need credits for tuition."); } }
+		else if (StatKey == FName("gym"))
+			{ auto* Gym = GetGameInstance()->GetSubsystem<UGymSystem>(); if (Gym) { static const TCHAR* Ex[] = {TEXT("Weights"),TEXT("Cardio"),TEXT("Sparring"),TEXT("Yoga")}; static int32 EX = 0; EX = (EX+1)%4; Message = Gym->Workout(Ex[EX]); } }
+		else if (StatKey == FName("criminal"))
+			{ auto* Cr = GetGameInstance()->GetSubsystem<UCriminalEmpire>(); if (Cr) { static int32 OI = 0; OI = (OI + 1) % Cr->GetOperations().Num(); if (Cr->StartOperation(Cr->GetOperations()[OI].Name)) Message = Cr->GetEmpireReport(); else if (Cr->CollectIncome()) Message = Cr->GetEmpireReport(); else Message = Cr->GetEmpireReport(); } }
 		else if (StatKey == FName("property"))
 		{
 			// GDD 9.3 - buy the cheapest unowned property the player can afford.

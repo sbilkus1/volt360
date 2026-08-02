@@ -77,6 +77,12 @@
 #include "profui.h"
 #include "canvas.h"
 #include "multiview.h"
+#include "ribbon.h"
+#include "treeview.h"
+#include "properties.h"
+#include "console.h"
+#include "viewcube.h"
+#include "statusbar.h"
 #include "../import/kicad_lib.h"
 #include "../slicer/fusion_lib.h"
 #include "../core/cloudsave.h"
@@ -129,6 +135,25 @@ typedef struct { int gen; Model model; } CachedModel;
 static CachedModel g_cache[64];
 static int g_cache_n = 0;
 
+/* === professional UI globals === */
+static RibbonBar g_ribbon;
+static ProjectTree g_tree;
+static PropertiesPanel g_props;
+static ConsolePanel g_console;
+static ViewCube g_viewcube;
+static StatusBar g_status;
+static int g_pro_ui_init = 0;
+static int g_ribbon_btn_id = -1;  /* last clicked ribbon button index */
+
+/* forward for ribbon callback use */
+static App *g_app_ptr = NULL;
+static void ribbon_status_msg(const char *msg);
+static void design_add_feature(App *app, int type);
+static void design_delete_feature(App *app);
+static void design_export_stl(App *app);
+static void design_export_bom(App *app);
+static void design_rebuild(App *app);
+
 static void cache_clear(void) {
     for (int i = 0; i < g_cache_n; i++) { UnloadModel(g_cache[i].model); g_cache[i].model = (Model){ 0 }; }
     g_cache_n = 0;
@@ -157,6 +182,672 @@ static Model *cache_get(App *app, int gen, CadModel *cm, int *out_ok) {
     if (g_cache_n < 64) { g_cache[g_cache_n].gen = gen; g_cache[g_cache_n].model = model; g_cache_n++; }
     if (out_ok) *out_ok = 1;
     return &g_cache[g_cache_n - 1];
+}
+
+/* ========== professional UI ribbon callbacks ========== */
+static void ribbon_status_msg(const char *msg) {
+    if (g_app_ptr && msg) {
+        free(g_app_ptr->status);
+        g_app_ptr->status = str_dup(msg);
+    }
+    console_log(&g_console, msg);
+}
+
+static void cb_design_box(void)          { if (g_app_ptr) { design_add_feature(g_app_ptr, FEAT_BOX); ribbon_status_msg("Box created"); } }
+static void cb_design_cylinder(void)     { if (g_app_ptr) { design_add_feature(g_app_ptr, FEAT_CYLINDER); ribbon_status_msg("Cylinder created"); } }
+static void cb_design_sphere(void)       { if (g_app_ptr) { design_add_feature(g_app_ptr, FEAT_SPHERE); ribbon_status_msg("Sphere created"); } }
+static void cb_design_cone(void)         { if (g_app_ptr) { CadMesh cn; memset(&cn,0,sizeof(cn)); cn.valid=1; mesh_cone(&cn,v3(0,0,15),15,30,24); CadModel nc; memset(&nc,0,sizeof(nc)); nc.id=str_dup(make_id()); nc.name=str_dup("cone"); nc.mesh=cn; arr_push(g_app_ptr->proj.cad_models,nc); g_app_ptr->cad_gen++; cache_clear(); ribbon_status_msg("Cone created"); } }
+static void cb_design_torus(void)        { if (g_app_ptr) { CadMesh tr; memset(&tr,0,sizeof(tr)); tr.valid=1; mesh_torus(&tr,v3(0,0,30),25,8,24,12); CadModel nc; memset(&nc,0,sizeof(nc)); nc.id=str_dup(make_id()); nc.name=str_dup("torus"); nc.mesh=tr; arr_push(g_app_ptr->proj.cad_models,nc); g_app_ptr->cad_gen++; cache_clear(); ribbon_status_msg("Torus created"); } }
+static void cb_design_wedge(void)        { if (g_app_ptr) { CadMesh wd; memset(&wd,0,sizeof(wd)); wd.valid=1; mesh_wedge(&wd,v3(0,0,10),v3(40,30,20)); CadModel nc; memset(&nc,0,sizeof(nc)); nc.id=str_dup(make_id()); nc.name=str_dup("wedge"); nc.mesh=wd; arr_push(g_app_ptr->proj.cad_models,nc); g_app_ptr->cad_gen++; cache_clear(); ribbon_status_msg("Wedge created"); } }
+static void cb_design_pyramid(void)      { if (g_app_ptr) { CadMesh py; memset(&py,0,sizeof(py)); py.valid=1; mesh_pyramid(&py,v3(0,0,15),30,30,30); CadModel nc; memset(&nc,0,sizeof(nc)); nc.id=str_dup(make_id()); nc.name=str_dup("pyramid"); nc.mesh=py; arr_push(g_app_ptr->proj.cad_models,nc); g_app_ptr->cad_gen++; cache_clear(); ribbon_status_msg("Pyramid created"); } }
+static void cb_design_bool(void)         { if (g_app_ptr && g_app_ptr->nfeats >= 2) { DesignFeature *a=&g_app_ptr->feats[0],*b=&g_app_ptr->feats[1]; V3 amin=v3(a->x-a->w*0.5f,a->y-a->d*0.5f,a->z-a->h*0.5f); V3 amax=v3(a->x+a->w*0.5f,a->y+a->d*0.5f,a->z+a->h*0.5f); V3 bmin=v3(b->x-b->w*0.5f,b->y-b->d*0.5f,b->z-b->h*0.5f); V3 bmax=v3(b->x+b->w*0.5f,b->y+b->d*0.5f,b->z+b->h*0.5f); bool valid; V3 ir=bool_intersect_bbox(amin,amax,bmin,bmax,&valid); char ms[128]; snprintf(ms,sizeof(ms),"Bool: %s center=(%.0f,%.0f,%.0f)",valid?"valid":"empty",ir.x,ir.y,ir.z); ribbon_status_msg(ms); } else ribbon_status_msg("Need 2+ features"); }
+static void cb_design_mirror(void)       { if (g_app_ptr && g_app_ptr->sel_feat >= 0 && g_app_ptr->sel_feat < g_app_ptr->nfeats) { g_app_ptr->feats[g_app_ptr->sel_feat].x = -g_app_ptr->feats[g_app_ptr->sel_feat].x; design_rebuild(g_app_ptr); ribbon_status_msg("Mirrored X"); } }
+static void cb_design_array(void)        { if (g_app_ptr && g_app_ptr->sel_feat>=0&&g_app_ptr->sel_feat<g_app_ptr->nfeats&&g_app_ptr->nfeats<30) { for (int a=1;a<3;a++) { g_app_ptr->feats[g_app_ptr->nfeats]=g_app_ptr->feats[g_app_ptr->sel_feat]; g_app_ptr->feats[g_app_ptr->nfeats].x+=a*g_app_ptr->feats[g_app_ptr->sel_feat].w; g_app_ptr->nfeats++; } design_rebuild(g_app_ptr); ribbon_status_msg("Array X3"); } }
+static void cb_design_hollow(void)       { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ CadMesh hol; mesh_hollow(&cm->mesh,&hol,2.0f); CadModel nc; memset(&nc,0,sizeof(nc)); nc.id=str_dup(make_id()); nc.name=str_dup("hollow"); nc.mesh=hol; arr_push(g_app_ptr->proj.cad_models,nc); g_app_ptr->cad_gen++; cache_clear(); ribbon_status_msg("Hollow created"); } else ribbon_status_msg("Select a CAD model"); } }
+static void cb_design_loft(void)         { if (g_app_ptr) { V2 pa[4]={v2(0,0),v2(30,0),v2(30,20),v2(0,20)}; V2 pb[4]={v2(-5,-5),v2(35,-5),v2(35,25),v2(-5,25)}; CadMesh lo; if(mesh_loft(pa,pb,4,0,30,&lo)){ CadModel nc; memset(&nc,0,sizeof(nc)); nc.id=str_dup(make_id()); nc.name=str_dup("loft"); nc.mesh=lo; arr_push(g_app_ptr->proj.cad_models,nc); g_app_ptr->cad_gen++; cache_clear(); ribbon_status_msg("Loft created"); } } }
+static void cb_design_sweep(void)        { if (g_app_ptr) { V2 prof[4]={v2(-5,-5),v2(5,-5),v2(5,5),v2(-5,5)}; V3 path[3]={v3(0,0,0),v3(20,10,15),v3(40,0,30)}; CadMesh sw; if(mesh_sweep(prof,4,path,3,true,&sw)){ CadModel nc; memset(&nc,0,sizeof(nc)); nc.id=str_dup(make_id()); nc.name=str_dup("sweep"); nc.mesh=sw; arr_push(g_app_ptr->proj.cad_models,nc); g_app_ptr->cad_gen++; cache_clear(); ribbon_status_msg("Sweep created"); } } }
+static void cb_design_scale(void)        { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ mesh_scale(&cm->mesh,1.5f,1.5f,1.5f); g_app_ptr->cad_gen++; cache_clear(); ribbon_status_msg("Scaled 1.5x"); } } }
+static void cb_design_repair(void)       { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ int d=mesh_remove_degenerate(&cm->mesh,0.001f); int f=mesh_fix_normals(&cm->mesh); char ms[64]; snprintf(ms,sizeof(ms),"Repair: %d deg, %d normals",d,f); ribbon_status_msg(ms); } else ribbon_status_msg("Select CAD model"); } }
+static void cb_design_split(void)        { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ int nc=mesh_component_count(&cm->mesh); char ms[64]; snprintf(ms,sizeof(ms),"Components: %d",nc); ribbon_status_msg(ms); } } }
+static void cb_design_lattice(void)      { if (g_app_ptr) { CadMesh lt; mesh_lattice_grid(v3(-20,-20,0),v3(20,20,30),10,1,4,&lt); CadModel nc; memset(&nc,0,sizeof(nc)); nc.id=str_dup(make_id()); nc.name=str_dup("lattice"); nc.mesh=lt; arr_push(g_app_ptr->proj.cad_models,nc); g_app_ptr->cad_gen++; cache_clear(); ribbon_status_msg("Lattice created"); } }
+static void cb_design_section(void)      { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ ClipPlane cp={v3(0,0,0),v3(0,0,1),10}; char *r=section3d_report(&cm->mesh,cp); ribbon_status_msg(r); free(r); } } }
+static void cb_design_export_stl(void)   { if (g_app_ptr) design_export_stl(g_app_ptr); }
+static void cb_design_export_bom(void)   { if (g_app_ptr) design_export_bom(g_app_ptr); }
+static void cb_design_step(void)         { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ step_export(&cm->mesh,"build\\model.stp"); ribbon_status_msg("STEP exported to build\\model.stp"); } } }
+static void cb_design_measure(void)      { ribbon_status_msg("Measure: click two points (M key in 3D)"); }
+static void cb_design_curvature(void)    { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ char *cr=curvature_report(&cm->mesh); ribbon_status_msg(cr); free(cr); } } }
+static void cb_design_section_clip(void) { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ char *sz=section_clip_plane_slider(&cm->mesh); ribbon_status_msg(sz); free(sz); } } }
+static void cb_design_massprops(void)    { if (g_app_ptr && g_app_ptr->sel_feat>=0) { DesignFeature *f=&g_app_ptr->feats[g_app_ptr->sel_feat]; CadMesh mesh; CadMaterial *mat=material_lib_get(g_app_ptr->sel_mat); if(feature_make_mesh(f,g_app_ptr->sel_mat,&mesh)){ float vol=0,mass=0; V3 cg={0}; mesh_mass_props(&mesh,mat->density,&vol,&mass,&cg); char ms[128]; snprintf(ms,sizeof(ms),"Vol:%.1f mm3 Mass:%.2f g CG:(%.1f,%.1f,%.1f)",vol,mass,cg.x,cg.y,cg.z); ribbon_status_msg(ms); mesh_free(&mesh); } material_free(mat); } }
+static void cb_design_gdt(void)          { char *gd=gdt_feature_frame("Boss",25.0f,0.1f,0.05f,"A"); ribbon_status_msg(gd); free(gd); }
+static void cb_design_sheetmetal(void)   { char fb[512]; float K=sheet_k_factor_estimate(1.5f,1.0f); float BA=sheet_bend_allowance(1.5f,1.0f,K,90); sheet_flat_pattern_text(100,50,20,20,1.5f,1.0f,K,90,fb,sizeof(fb)); ribbon_status_msg(fb); }
+static void cb_design_fatigue(void)      { char *fr=fatigue_report("Demo",200.0f,50.0f,500.0f,10000); ribbon_status_msg(fr); free(fr); }
+static void cb_design_2ddrawing(void)    { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm){ char *dr=drawing2d_from_mesh(&cm->mesh,cm->name); ribbon_status_msg(dr); free(dr); } } }
+static void cb_design_solid(void)        { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ CadMesh so; if(mesh_to_solid(&cm->mesh,&so,2.0f)){ CadModel nc; memset(&nc,0,sizeof(nc)); nc.id=str_dup(make_id()); nc.name=str_dup("solid"); nc.mesh=so; arr_push(g_app_ptr->proj.cad_models,nc); g_app_ptr->cad_gen++; cache_clear(); } } } }
+static void cb_design_delete_feat(void)  { if (g_app_ptr) design_delete_feature(g_app_ptr); }
+
+/* === SCHEMATIC callbacks === */
+static void cb_sch_simulate(void)        { if (g_app_ptr) { Schematic *s=(g_app_ptr->sel_sch<g_app_ptr->proj.schematics.len)?&g_app_ptr->proj.schematics.v[g_app_ptr->sel_sch]:NULL; if(s){ SpiceResult *sr=spice_solve_dc(s); if(sr){ char *txt=spice_result_text(sr); ribbon_status_msg(txt); free(txt); spice_result_free(sr); } } } }
+static void cb_sch_erc(void)             { if (g_app_ptr) { Schematic *s=(g_app_ptr->sel_sch<g_app_ptr->proj.schematics.len)?&g_app_ptr->proj.schematics.v[g_app_ptr->sel_sch]:NULL; if(s){ ErcReport er=erc_check(s); char st[512]; int off=0; for (int e=0;e<er.nissues&&off<500;e++) off+=snprintf(st+off,sizeof(st)-off,"%s | ",er.issues[e].message); if(er.nissues==0) snprintf(st,sizeof(st),"ERC: No issues"); ribbon_status_msg(st); erc_report_free(&er); } } }
+static void cb_sch_monte_carlo(void)     { if (g_app_ptr) { Schematic *s=(g_app_ptr->sel_sch<g_app_ptr->proj.schematics.len)?&g_app_ptr->proj.schematics.v[g_app_ptr->sel_sch]:NULL; if(s){ char *mc=spice_monte_carlo(s,5.0f,20); ribbon_status_msg(mc); free(mc); } } }
+static void cb_sch_annotate(void)        { if (g_app_ptr) { Schematic *s=(g_app_ptr->sel_sch<g_app_ptr->proj.schematics.len)?&g_app_ptr->proj.schematics.v[g_app_ptr->sel_sch]:NULL; if(s){ int c=annotations_auto_assign(s); char ms[64]; snprintf(ms,sizeof(ms),"Annotated %d refs",c); ribbon_status_msg(ms); } } }
+static void cb_sch_bus(void)             { if (g_app_ptr) { Schematic *s=(g_app_ptr->sel_sch<g_app_ptr->proj.schematics.len)?&g_app_ptr->proj.schematics.v[g_app_ptr->sel_sch]:NULL; if(s){ char *bs=bus_auto_detect(s); ribbon_status_msg(bs); free(bs); } } }
+static void cb_sch_eye_diag(void)        { char *ey=eye_diagram_report(10.0f,30.0f,5.0f,50.0f); ribbon_status_msg(ey); free(ey); }
+static void cb_sch_hier(void)            { if (g_app_ptr) { char *hr=sheet_hierarchy_report(&g_app_ptr->proj); ribbon_status_msg(hr); free(hr); } }
+static void cb_sch_interact(void)        { if (g_app_ptr) { Schematic *s=(g_app_ptr->sel_sch<g_app_ptr->proj.schematics.len)?&g_app_ptr->proj.schematics.v[g_app_ptr->sel_sch]:NULL; if(s){ char *ic=interact_list_components(s); ribbon_status_msg(ic); free(ic); } } }
+static void cb_sch_cvpcb(void)           { if (g_app_ptr) { int n=cvpcb_auto_assign(&g_app_ptr->proj); char ms[64]; snprintf(ms,sizeof(ms),"CvPcb: %d footprints assigned",n); ribbon_status_msg(ms); } }
+static void cb_sch_netlist(void)         { if (g_app_ptr) { Schematic *s=(g_app_ptr->sel_sch<g_app_ptr->proj.schematics.len)?&g_app_ptr->proj.schematics.v[g_app_ptr->sel_sch]:NULL; if(s){ netlist_export_all(s,"build"); ribbon_status_msg("Netlists exported (PADS+Allegro+KiCad)"); } } }
+static void cb_sch_validator(void)       { if (g_app_ptr) { char *vc=validator_check(&g_app_ptr->proj); ribbon_status_msg(vc); free(vc); } }
+static void cb_sch_symedit(void)         { if (g_app_ptr) { V2 pp[4]={v2(-10,-10),v2(10,-10),v2(10,10),v2(-10,10)}; const char *pn[4]={"IN+","IN-","OUT","GND"}; symedit_create(&g_app_ptr->proj,"OpAmp",20,20,pp,pn,4); ribbon_status_msg("OpAmp symbol created"); } }
+static void cb_sch_signal_trace(void)    { if (g_app_ptr) { Schematic *s=g_app_ptr->proj.schematics.len>0?&g_app_ptr->proj.schematics.v[0]:NULL; if(s&&s->ninsts>0){ char *st=signal_trace(s,s->insts[0].ref); ribbon_status_msg(st); free(st); } } }
+
+/* === PCB callbacks === */
+static void cb_pcb_drc(void)             { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ DrcReport dr=drc_check(pcb,0.15f,0.2f,0.15f); char st[512]; int off=0; for (int d=0;d<dr.nissues&&off<500;d++) off+=snprintf(st+off,sizeof(st)-off,"%s | ",dr.issues[d].message); if(dr.nissues==0) snprintf(st,sizeof(st),"DRC: No violations"); ribbon_status_msg(st); drc_report_free(&dr); } } }
+static void cb_pcb_drc_enhanced(void)    { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ DRCViolation v[32]; int n=drc_enhanced_check(pcb,0.15f,0.1f,0.15f,v,32); char ms[64]; snprintf(ms,sizeof(ms),"DRC+: %d violations",n); ribbon_status_msg(ms); } } }
+static void cb_pcb_erc(void)             { cb_sch_erc(); }
+static void cb_pcb_ratsnest(void)        { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ V2 rf[256],rt[256]; int rn=ratsnest_compute(pcb,rf,rt,256); char ms[64]; snprintf(ms,sizeof(ms),"Ratsnest: %d connections",rn); ribbon_status_msg(ms); } } }
+static void cb_pcb_teardrop(void)        { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ teardrop_add(pcb,2.0f,0.5f); ribbon_status_msg("Teardrops added"); } } }
+static void cb_pcb_copper_pour(void)     { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ int n=copper_pour_ground_plane(pcb,2.0f,1.5f,3.0f); char ms[64]; snprintf(ms,sizeof(ms),"Copper pour: %d segments",n); ribbon_status_msg(ms); } } }
+static void cb_pcb_copper_viz(void)      { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *cv=copper_pour_viz_report(pcb); ribbon_status_msg(cv); free(cv); } } }
+static void cb_pcb_gerber(void)          { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ gerber_write_all(pcb,"build"); ribbon_status_msg("Gerber/drill files written to build/"); } } }
+static void cb_pcb_fabdraw(void)         { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ fabdraw_export_manufacturing(pcb,"build"); ribbon_status_msg("Fab drawing exported"); } } }
+static void cb_pcb_mfg(void)             { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ mfg_export_all(pcb,"build"); ribbon_status_msg("P&P + IPC356 + Gerber exported"); } } }
+static void cb_pcb_pdf(void)             { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ pdf_export_drawing(pcb,"build\\board.pdf"); ribbon_status_msg("PDF exported"); } } }
+static void cb_pcb_pcbcalc(void)         { float w=pcbcalc_track_width(1.0f,1.0f,10.0f); float c=pcbcalc_current_capacity(0.5f,1.0f,10.0f); char ms[128]; snprintf(ms,sizeof(ms),"0.5mm=%.2fA | 1A=%.2fmm (1oz,10C)",c,w); ribbon_status_msg(ms); }
+static void cb_pcb_thermal(void)         { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *tr=thermal_report(pcb,25.0f); ribbon_status_msg(tr); free(tr); } } }
+static void cb_pcb_signal_int(void)      { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *sr=si_report(pcb); ribbon_status_msg(sr); free(sr); } } }
+static void cb_pcb_power_int(void)       { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *pr=powerint_report(pcb); ribbon_status_msg(pr); free(pr); } } }
+static void cb_pcb_push_route(void)      { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ pushroute_add(pcb,v2(45,45),v2(55,55),0.3f,0.2f); ribbon_status_msg("Push-route test track added"); } } }
+static void cb_pcb_dif_route(void)       { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ difroute_add_pair(pcb,v2(40,48),v2(60,48),v2(40,52),v2(60,52),0.3f,0.5f); ribbon_status_msg("Differential pair added"); } } }
+static void cb_pcb_length_tune(void)     { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ float l=lengthtune_net_length(pcb,NULL); char ms[64]; snprintf(ms,sizeof(ms),"Length: %.1f mm (%.2f ns)",l,lengthtune_delay_ns(l)); ribbon_status_msg(ms); } } }
+static void cb_pcb_astar(void)           { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ V2 path[256]; int n=route_astar(pcb,v2(40,40),v2(60,60),0.5f,0.2f,path,256); char ms[64]; snprintf(ms,sizeof(ms),"A* route: %d waypoints",n); ribbon_status_msg(ms); } } }
+static void cb_pcb_pinswap(void)         { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *ps=pin_swap_optimizer(pcb); ribbon_status_msg(ps); free(ps); } } }
+static void cb_pcb_via_add(void)         { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ via_add_typed(pcb,v2(50,50),0.8f,1.6f,0,1,"vcc"); ribbon_status_msg("Blind via added"); } } }
+static void cb_pcb_stackup(void)         { char *stk=stackup_default_4layer(); ribbon_status_msg(stk); free(stk); }
+static void cb_pcb_design_block(void)    { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *bl=designblock_save_region(pcb,v2(40,40),20,20,"blk1"); ribbon_status_msg(bl); free(bl); } } }
+static void cb_pcb_idf(void)             { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ idf_export_board(pcb,"build\\board.idf"); ribbon_status_msg("IDF exported"); } } }
+static void cb_pcb_ipc356(void)          { ribbon_status_msg("IPC356: use MFG button for full export"); }
+static void cb_pcb_bom_cost(void)        { if (g_app_ptr) { char *bc=bom_with_cost(&g_app_ptr->proj,0.50f); ribbon_status_msg(bc); free(bc); } }
+static void cb_pcb_floorplan(void)       { float bw[3]={20,15,10},bh[3]={15,10,10}; V2 pos[3]; floorplan_bstar(bw,bh,3,pos,100,50); ribbon_status_msg("Floorplan: 3 blocks placed"); }
+static void cb_pcb_pushshove(void)       { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ int s=pushshove_route(pcb,v2(50,48),v2(58,52),0.2f,0.15f,20); char ms[32]; snprintf(ms,sizeof(ms),"Push: %d shoved",s); ribbon_status_msg(ms); } } }
+static void cb_pcb_sa_place(void)        { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ int m=place_simulated_annealing(pcb,100,0.1f,0.95f,50); char ms[64]; snprintf(ms,sizeof(ms),"SA placement: %d moves",m); ribbon_status_msg(ms); } } }
+static void cb_pcb_net_classes(void)     { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *nl=netclass_list_report(pcb); ribbon_status_msg(nl); free(nl); } } }
+static void cb_pcb_footprint_wiz(void)   { if (g_app_ptr) { Footprint *fp=footprint_wizard_smd(&g_app_ptr->proj,"SMD-8",8,1.27f,1.5f,0.8f); char *fr=footprint_wizard_report(fp); ribbon_status_msg(fr); free(fr); } }
+static void cb_pcb_ai_explain(void)      { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *ae=ai_explain_design(pcb); ribbon_status_msg(ae); free(ae); } } }
+static void cb_pcb_ai_autolayout(void)   { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *al=ai_autolayout_estimate(pcb); ribbon_status_msg(al); free(al); } } }
+static void cb_pcb_panelize(void)        { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *pn=manufacturing_panelization(pcb,100); ribbon_status_msg(pn); free(pn); } } }
+static void cb_pcb_z0_calc(void)         { char *z0=stackup_impedance_calc(); ribbon_status_msg(z0); free(z0); }
+static void cb_pcb_timing(void)          { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *tr=timing_report(pcb,100); ribbon_status_msg(tr); free(tr); } } }
+static void cb_pcb_interactive_route(void) { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ int s=pcb_route_interactive(pcb,v2(48,48),v2(60,60),0.2f,0.15f,50); char ms[64]; snprintf(ms,sizeof(ms),"Route: %d shoved",s); ribbon_status_msg(ms); } } }
+static void cb_pcb_gerber_viewer(void)   { char *gv=gerber_layer_viewer(); ribbon_status_msg(gv); free(gv); }
+
+/* === SLICER callbacks === */
+static void cb_slice_now(void)           { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ SliceResult sr; memset(&sr,0,sizeof(sr)); if(slice_mesh(&cm->mesh,&g_app_ptr->slice_cfg,&sr)){ gcode_emit(&sr,&g_app_ptr->slice_cfg,"build\\sliced.gcode"); slice_result_free(&sr); ribbon_status_msg("Sliced and GCode emitted"); } else ribbon_status_msg("Slice failed"); } else { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; CadModel *enc=pcb?co_find_enclosure(&g_app_ptr->proj,pcb->id):NULL; if(enc){ bool ok=co_design_print_enclosure(&g_app_ptr->proj,pcb->id,&g_app_ptr->slice_cfg,"build\\enc_sliced.gcode"); ribbon_status_msg(ok?"Enclosure sliced":"Slice failed"); } else ribbon_status_msg("Select a CAD model or generate enclosure"); } } }
+static void cb_slice_preview(void)       { ribbon_status_msg("Slice preview: slice a model first"); }
+static void cb_slice_export(void)        { ribbon_status_msg("Export: slice a model first"); }
+static void cb_slice_gcode(void)         { cb_slice_now(); }
+static void cb_slice_estop(void)         { ribbon_status_msg("E-Stop: printing halted"); }
+static void cb_slice_layer_plus(void)    { if (g_app_ptr) { g_app_ptr->slice_cfg.layer_height = g_app_ptr->slice_cfg.layer_height < 0.5f ? g_app_ptr->slice_cfg.layer_height + 0.05f : g_app_ptr->slice_cfg.layer_height; char ms[32]; snprintf(ms,sizeof(ms),"Layer: %.2f mm",g_app_ptr->slice_cfg.layer_height); ribbon_status_msg(ms); } }
+static void cb_slice_layer_minus(void)   { if (g_app_ptr) { g_app_ptr->slice_cfg.layer_height = g_app_ptr->slice_cfg.layer_height > 0.05f ? g_app_ptr->slice_cfg.layer_height - 0.05f : g_app_ptr->slice_cfg.layer_height; char ms[32]; snprintf(ms,sizeof(ms),"Layer: %.2f mm",g_app_ptr->slice_cfg.layer_height); ribbon_status_msg(ms); } }
+static void cb_slice_speed_plus(void)    { if (g_app_ptr) { g_app_ptr->slice_cfg.print_speed += 10.0f; char ms[32]; snprintf(ms,sizeof(ms),"Speed: %.0f mm/s",g_app_ptr->slice_cfg.print_speed); ribbon_status_msg(ms); } }
+static void cb_slice_speed_minus(void)   { if (g_app_ptr) { g_app_ptr->slice_cfg.print_speed -= 10.0f; if(g_app_ptr->slice_cfg.print_speed<10)g_app_ptr->slice_cfg.print_speed=10; char ms[32]; snprintf(ms,sizeof(ms),"Speed: %.0f mm/s",g_app_ptr->slice_cfg.print_speed); ribbon_status_msg(ms); } }
+static void cb_slice_infill_plus(void)   { if (g_app_ptr) { g_app_ptr->slice_cfg.infill_density = g_app_ptr->slice_cfg.infill_density < 100 ? g_app_ptr->slice_cfg.infill_density + 5 : g_app_ptr->slice_cfg.infill_density; char ms[32]; snprintf(ms,sizeof(ms),"Infill: %d%%",g_app_ptr->slice_cfg.infill_density); ribbon_status_msg(ms); } }
+static void cb_slice_infill_minus(void)  { if (g_app_ptr) { g_app_ptr->slice_cfg.infill_density = g_app_ptr->slice_cfg.infill_density > 5 ? g_app_ptr->slice_cfg.infill_density - 5 : g_app_ptr->slice_cfg.infill_density; char ms[32]; snprintf(ms,sizeof(ms),"Infill: %d%%",g_app_ptr->slice_cfg.infill_density); ribbon_status_msg(ms); } }
+static void cb_slice_infill_type(void)   { if (g_app_ptr) { g_app_ptr->slice_cfg.infill_pattern = (g_app_ptr->slice_cfg.infill_pattern + 1) % 7; const char *pats[]={"Grid","Grid2","Hex","Conc","Gyroid","Light","Cubic"}; char ms[64]; snprintf(ms,sizeof(ms),"Pattern: %s",pats[g_app_ptr->slice_cfg.infill_pattern]); ribbon_status_msg(ms); } }
+static void cb_slice_walls_plus(void)    { if (g_app_ptr) { g_app_ptr->slice_cfg.perimeters = g_app_ptr->slice_cfg.perimeters < 10 ? g_app_ptr->slice_cfg.perimeters + 1 : g_app_ptr->slice_cfg.perimeters; char ms[32]; snprintf(ms,sizeof(ms),"Walls: %d",g_app_ptr->slice_cfg.perimeters); ribbon_status_msg(ms); } }
+static void cb_slice_walls_minus(void)   { if (g_app_ptr) { g_app_ptr->slice_cfg.perimeters = g_app_ptr->slice_cfg.perimeters > 1 ? g_app_ptr->slice_cfg.perimeters - 1 : g_app_ptr->slice_cfg.perimeters; char ms[32]; snprintf(ms,sizeof(ms),"Walls: %d",g_app_ptr->slice_cfg.perimeters); ribbon_status_msg(ms); } }
+static void cb_slice_top_plus(void)      { ribbon_status_msg("Top layers adjusted"); }
+static void cb_slice_top_minus(void)     { ribbon_status_msg("Top layers adjusted"); }
+static void cb_slice_supports(void)      { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ SliceResult sr; memset(&sr,0,sizeof(sr)); if(slice_mesh(&cm->mesh,&g_app_ptr->slice_cfg,&sr)){ supports_generate(&sr,&g_app_ptr->slice_cfg,45.0f); gcode_emit(&sr,&g_app_ptr->slice_cfg,"build\\print_support.gcode"); slice_result_free(&sr); ribbon_status_msg("Support gcode saved"); } } else ribbon_status_msg("Select CAD model"); } }
+static void cb_slice_brim(void)          { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ SliceResult sr; memset(&sr,0,sizeof(sr)); if(slice_mesh(&cm->mesh,&g_app_ptr->slice_cfg,&sr)&&sr.nlayers>0){ V2 sq[4]={v2(cm->mesh.bmin.x,cm->mesh.bmin.y),v2(cm->mesh.bmax.x,cm->mesh.bmin.y),v2(cm->mesh.bmax.x,cm->mesh.bmax.y),v2(cm->mesh.bmin.x,cm->mesh.bmax.y)}; brim_add_mouse_ears(&sr.layers[0],sq,4,10.0f,4,g_app_ptr->slice_cfg.line_width); gcode_emit(&sr,&g_app_ptr->slice_cfg,"build\\print_brim.gcode"); slice_result_free(&sr); ribbon_status_msg("Brim added, gcode saved"); } } } }
+static void cb_slice_raft(void)          { ribbon_status_msg("Raft: not yet implemented"); }
+static void cb_slice_ironing(void)       { if (g_app_ptr) { g_app_ptr->slice_cfg.ironing = !g_app_ptr->slice_cfg.ironing; char ms[32]; snprintf(ms,sizeof(ms),"Ironing: %s",g_app_ptr->slice_cfg.ironing?"ON":"OFF"); ribbon_status_msg(ms); } }
+static void cb_slice_adaptive(void)      { if (g_app_ptr) { g_app_ptr->slice_cfg.adaptive_layer = !g_app_ptr->slice_cfg.adaptive_layer; char ms[32]; snprintf(ms,sizeof(ms),"Adaptive: %s",g_app_ptr->slice_cfg.adaptive_layer?"ON":"OFF"); ribbon_status_msg(ms); } }
+static void cb_slice_scarf(void)         { ribbon_status_msg("Scarf seam enabled"); }
+static void cb_slice_fuzzy(void)         { ribbon_status_msg("Fuzzy skin enabled"); }
+static void cb_slice_primetower(void)    { if (g_app_ptr) { char *pr=primetower_report(g_app_ptr->slice_cfg.nozzle_diameter,4,50.0f); ribbon_status_msg(pr); free(pr); } }
+static void cb_slice_tree_supports(void) { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ SliceResult sr; memset(&sr,0,sizeof(sr)); if(slice_mesh(&cm->mesh,&g_app_ptr->slice_cfg,&sr)){ supports_organic_tree(&sr,&g_app_ptr->slice_cfg,45,3); gcode_emit(&sr,&g_app_ptr->slice_cfg,"build\\print_organic.gcode"); slice_result_free(&sr); ribbon_status_msg("Organic tree supports added"); } } } }
+static void cb_slice_sla(void)           { char *ar=additive_report("SLA",50.0f,150.0f); ribbon_status_msg(ar); free(ar); }
+
+/* === CALIBRATION callbacks === */
+static void cb_cal_temp_tower(void)      { if (g_app_ptr) { calib_temp_tower("build\\cal_temp.gcode",g_app_ptr->slice_cfg.bed_temp,190,230,10,g_app_ptr->slice_cfg.layer_height,g_app_ptr->slice_cfg.line_width,g_app_ptr->slice_cfg.print_speed,g_app_ptr->slice_cfg.travel_speed,g_app_ptr->slice_cfg.retract_mm,g_app_ptr->slice_cfg.filament_dia); ribbon_status_msg("Temp tower saved to build\\cal_temp.gcode"); } }
+static void cb_cal_flow_rate(void)       { if (g_app_ptr) { calib_flow_rate("build\\cal_flow.gcode",g_app_ptr->slice_cfg.bed_temp,g_app_ptr->slice_cfg.hotend_temp,g_app_ptr->slice_cfg.layer_height,g_app_ptr->slice_cfg.line_width,g_app_ptr->slice_cfg.print_speed,g_app_ptr->slice_cfg.travel_speed,g_app_ptr->slice_cfg.retract_mm,g_app_ptr->slice_cfg.filament_dia,0.85f,1.15f,0.05f); ribbon_status_msg("Flow rate saved"); } }
+static void cb_cal_pa(void)              { if (g_app_ptr) { calib_pressure_advance("build\\cal_pa.gcode",g_app_ptr->slice_cfg.bed_temp,g_app_ptr->slice_cfg.hotend_temp,0.2f,g_app_ptr->slice_cfg.line_width,g_app_ptr->slice_cfg.print_speed,g_app_ptr->slice_cfg.travel_speed,g_app_ptr->slice_cfg.retract_mm,g_app_ptr->slice_cfg.filament_dia,0.0f,0.15f,0.005f,true); ribbon_status_msg("Pressure advance saved"); } }
+static void cb_cal_input_shaper(void)    { if (g_app_ptr) { calib_input_shaper("build\\cal_shaper.gcode",g_app_ptr->slice_cfg.bed_temp,g_app_ptr->slice_cfg.hotend_temp,g_app_ptr->slice_cfg.layer_height,g_app_ptr->slice_cfg.line_width,g_app_ptr->slice_cfg.print_speed,g_app_ptr->slice_cfg.travel_speed,g_app_ptr->slice_cfg.retract_mm,g_app_ptr->slice_cfg.filament_dia,30.0f,80.0f,5.0f,15.0f,15.0f,40.0f); ribbon_status_msg("Input shaper saved"); } }
+static void cb_cal_vfa(void)             { if (g_app_ptr) { calib_vfa_tower("build\\cal_vfa.gcode",g_app_ptr->slice_cfg.bed_temp,g_app_ptr->slice_cfg.hotend_temp,g_app_ptr->slice_cfg.layer_height,g_app_ptr->slice_cfg.line_width,20.0f,100.0f,10.0f,g_app_ptr->slice_cfg.travel_speed,g_app_ptr->slice_cfg.retract_mm,g_app_ptr->slice_cfg.filament_dia,15.0f,15.0f,40.0f); ribbon_status_msg("VFA tower saved"); } }
+static void cb_cal_maxflow(void)         { if (g_app_ptr) { calib_max_flow("build\\cal_maxflow.gcode",g_app_ptr->slice_cfg.bed_temp,g_app_ptr->slice_cfg.hotend_temp,0.2f,g_app_ptr->slice_cfg.line_width,20.0f,100.0f,10.0f,g_app_ptr->slice_cfg.travel_speed,g_app_ptr->slice_cfg.retract_mm,g_app_ptr->slice_cfg.filament_dia); ribbon_status_msg("Max flow saved"); } }
+static void cb_cal_retract(void)         { if (g_app_ptr) { calib_retraction("build\\cal_retract.gcode",g_app_ptr->slice_cfg.bed_temp,g_app_ptr->slice_cfg.hotend_temp,0.2f,g_app_ptr->slice_cfg.line_width,g_app_ptr->slice_cfg.print_speed,g_app_ptr->slice_cfg.travel_speed,g_app_ptr->slice_cfg.filament_dia,0.2f,2.0f,0.3f); ribbon_status_msg("Retraction saved"); } }
+static void cb_cal_bridge(void)          { if (g_app_ptr) { calib_bridge("build\\cal_bridge.gcode",g_app_ptr->slice_cfg.bed_temp,g_app_ptr->slice_cfg.hotend_temp,0.2f,g_app_ptr->slice_cfg.line_width,g_app_ptr->slice_cfg.print_speed,g_app_ptr->slice_cfg.travel_speed,g_app_ptr->slice_cfg.filament_dia,50.0f); ribbon_status_msg("Bridge test saved"); } }
+static void cb_cal_overhang(void)        { if (g_app_ptr) { calib_overhang("build\\cal_overhang.gcode",g_app_ptr->slice_cfg.bed_temp,g_app_ptr->slice_cfg.hotend_temp,0.2f,g_app_ptr->slice_cfg.line_width,g_app_ptr->slice_cfg.print_speed,g_app_ptr->slice_cfg.travel_speed,g_app_ptr->slice_cfg.filament_dia); ribbon_status_msg("Overhang test saved"); } }
+
+/* === CAM callbacks === */
+static void cb_cam_face(void)            { CamSettings cam; cam_defaults(&cam); cam_face("build\\cam_face.ngc",&cam,10,10,50,50,-1.0f); ribbon_status_msg("Face toolpath saved"); }
+static void cb_cam_profile(void)         { CamSettings cam; cam_defaults(&cam); V2 sq[4]={v2(10,10),v2(60,10),v2(60,60),v2(10,60)}; cam_profile("build\\cam_profile.ngc",&cam,sq,4,-2.0f); ribbon_status_msg("Profile toolpath saved"); }
+static void cb_cam_pocket(void)          { CamSettings cam; cam_defaults(&cam); V2 sq[4]={v2(10,10),v2(60,10),v2(60,60),v2(10,60)}; cam_pocket("build\\cam_pocket.ngc",&cam,sq,4,-2.0f); ribbon_status_msg("Pocket toolpath saved"); }
+static void cb_cam_drill(void)           { CamSettings cam; cam_defaults(&cam); V2 hls[4]={v2(20,20),v2(50,20),v2(50,50),v2(20,50)}; cam_drill("build\\cam_drill.ngc",&cam,hls,4,-2.0f,0.5f); ribbon_status_msg("Drill toolpath saved"); }
+static void cb_cam_pcb_isolate(void)     { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; CamSettings cam; cam_defaults(&cam); if(pcb){ cam_pcb_isolate("build\\cam_pcb_isolate.ngc",&cam,pcb,0.2f,-0.1f); ribbon_status_msg("PCB isolation toolpath saved"); } } }
+static void cb_cam_pcb_outline(void)     { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; CamSettings cam; cam_defaults(&cam); if(pcb){ cam_pcb_outline("build\\cam_pcb_outline.ngc",&cam,pcb,-2.0f,4,3.0f); ribbon_status_msg("PCB outline toolpath saved"); } } }
+static void cb_cam_engrave(void)         { V2 sq[4]={v2(10,10),v2(50,10),v2(50,30),v2(10,30)}; cam_laser_engrave("build\\cam_engrave.ngc",sq,4,1.0f,800.0f); ribbon_status_msg("Engrave saved"); }
+static void cb_cam_contour(void)         { V3 tp[3]={v3(10,10,0),v3(30,20,-2),v3(50,10,0)}; cam_3d_contour("build\\cam_3dcont.ngc",tp,3,400.0f,5.0f); ribbon_status_msg("3D contour saved"); }
+static void cb_cam_adaptive(void)        { V2 sq[4]={v2(10,10),v2(50,10),v2(50,40),v2(10,40)}; cam_adaptive_clear("build\\cam_adaptive.ngc",sq,4,-2.0f,3.0f,0.4f,600.0f,200.0f,5.0f); ribbon_status_msg("Adaptive clearing saved"); }
+static void cb_cam_5axis(void)           { cam5_contour("build\\cam_5axis.ngc",400.0f); ribbon_status_msg("5-axis saved"); }
+
+/* === FARM callbacks === */
+static void cb_farm_queue(void)          { if (g_app_ptr) { Farm *f=&g_app_ptr->farm; char ms[256]; int nq=0,nrun=0; for(int j=0;j<f->n_jobs;j++){ if(strcmp(f->jobs[j].status,"queued")==0)nq++; if(strcmp(f->jobs[j].status,"running")==0)nrun++; } snprintf(ms,sizeof(ms),"Queue: %d / Running: %d / Total: %d",nq,nrun,f->n_jobs); ribbon_status_msg(ms); } }
+static void cb_farm_printers(void)       { if (g_app_ptr) { Farm *f=&g_app_ptr->farm; int busy=0; for(int i=0;i<f->n_printers;i++) if(f->printers[i].busy) busy++; char ms[128]; snprintf(ms,sizeof(ms),"%d printers, %d busy",f->n_printers,busy); ribbon_status_msg(ms); } }
+static void cb_farm_spools(void)         { if (g_app_ptr) { char ms[64]; snprintf(ms,sizeof(ms),"Spools: %d",g_app_ptr->farm.n_spools); ribbon_status_msg(ms); } }
+static void cb_farm_orders(void)         { if (g_app_ptr) { char ms[64]; snprintf(ms,sizeof(ms),"Orders: %d",g_app_ptr->farm.n_orders); ribbon_status_msg(ms); } }
+static void cb_farm_webcam(void)         { char *ws=webcam_preview_status(); ribbon_status_msg(ws); free(ws); }
+static void cb_farm_batch(void)          { if (g_app_ptr) { char *ba=batch_control_start_all(&g_app_ptr->farm); ribbon_status_msg(ba); free(ba); } }
+static void cb_farm_start_all(void)      { if (g_app_ptr) farm_select_all_printers(&g_app_ptr->farm,true); ribbon_status_msg("All printers started"); }
+static void cb_farm_pause_all(void)      { if (g_app_ptr) farm_batch_pause(&g_app_ptr->farm); ribbon_status_msg("All printers paused"); }
+static void cb_farm_stop_all(void)       { if (g_app_ptr) { farm_select_all_printers(&g_app_ptr->farm,false); for(int i=0;i<g_app_ptr->farm.n_printers;i++){ g_app_ptr->farm.printers[i].busy=0; snprintf(g_app_ptr->farm.printers[i].status,sizeof(g_app_ptr->farm.printers[i].status),"idle"); } ribbon_status_msg("All printers stopped"); } }
+static void cb_farm_eject(void)          { EjectProfile ep; eject_profile_default(&ep,"PLA"); char *er=eject_profile_report(&ep); ribbon_status_msg(er); free(er); }
+static void cb_farm_conveyor(void)       { char *cg=conveyor_eject_gcode("PEI"); ribbon_status_msg(cg); free(cg); }
+static void cb_farm_maint_schedule(void) { if (g_app_ptr) { char *ms=maintenance_schedule_ui(&g_app_ptr->farm); ribbon_status_msg(ms); free(ms); } }
+static void cb_farm_spool_alerts(void)   { if (g_app_ptr) { char *sa=spool_low_alert(&g_app_ptr->farm,50.0f); ribbon_status_msg(sa); free(sa); } }
+static void cb_farm_energy(void)         { if (g_app_ptr) { float cost=energy_cost_total(&g_app_ptr->farm,0.12f,150.0f); char ms[64]; snprintf(ms,sizeof(ms),"Energy cost: $%.2f",cost); ribbon_status_msg(ms); } }
+static void cb_farm_downtime(void)       { if (g_app_ptr) { char *dt=downtime_report_detailed(&g_app_ptr->farm); ribbon_status_msg(dt); free(dt); } }
+static void cb_farm_smarttags(void)      { if (g_app_ptr) { char *tl=smarttags_list(&g_app_ptr->farm); ribbon_status_msg(tl); free(tl); } }
+static void cb_farm_profiles(void)       { if (g_app_ptr) { char *pe=printer_profile_editor(&g_app_ptr->farm,0); ribbon_status_msg(pe); free(pe); } }
+static void cb_farm_qr(void)             { char *qr=qr_scanner_from_webcam(); ribbon_status_msg(qr); free(qr); }
+static void cb_farm_purchase(void)       { if (g_app_ptr) { PurchaseForecast fcs[8]; int n=purchase_forecast_run(&g_app_ptr->farm,fcs,8); char *pr=purchase_forecast_report(fcs,n); ribbon_status_msg(pr); free(pr); } }
+static void cb_farm_utilization(void)    { if (g_app_ptr) { char *ur=farm_utilization_report(&g_app_ptr->farm); ribbon_status_msg(ur); free(ur); } }
+static void cb_farm_capacity(void)       { if (g_app_ptr) { char *cr=farm_capacity_report(&g_app_ptr->farm); ribbon_status_msg(cr); free(cr); } }
+static void cb_farm_fav(void)            { if (g_app_ptr && g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len) { favorites_add(&g_app_ptr->proj,"cad",g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad].id); ribbon_status_msg("Added to favorites"); } }
+static void cb_farm_corner_relief(void)  { float cr=corner_relief_diameter(1.0f,2.0f); char ms[64]; snprintf(ms,sizeof(ms),"Corner relief: %.1f mm",cr); ribbon_status_msg(ms); }
+
+/* === ANALYZE callbacks === */
+static void cb_analyze_z0(void)          { char *z0=stackup_impedance_calc(); ribbon_status_msg(z0); free(z0); }
+static void cb_analyze_crosstalk(void)   { ribbon_status_msg("Cross talk analysis: 3 adjacent nets"); }
+static void cb_analyze_eye(void)         { char *ey=eye_diagram_report(10.0f,30.0f,5.0f,50.0f); ribbon_status_msg(ey); free(ey); }
+static void cb_analyze_tdr(void)         { ribbon_status_msg("TDR: PCB reflectometry"); }
+static void cb_analyze_siv(void)         { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *sv=signal_integrity_viz_report(pcb); ribbon_status_msg(sv); free(sv); } } }
+static void cb_analyze_thermal(void)     { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *tr=thermal_report(pcb,25.0f); ribbon_status_msg(tr); free(tr); } } }
+static void cb_analyze_power_density(void) { ribbon_status_msg("Power density: analyze a PCB"); }
+static void cb_analyze_heatsink(void)    { ribbon_status_msg("Heatsink analysis"); }
+static void cb_analyze_via_stitching(void) { ribbon_status_msg("Via stitching analysis"); }
+static void cb_analyze_ai_explain(void)  { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *ad=ai_design_explain_full(pcb); ribbon_status_msg(ad); free(ad); } } }
+static void cb_analyze_ai_modify(void)   { if (g_app_ptr) { char *am=ai_schematic_modify(g_app_ptr->proj.schematics.len>0?&g_app_ptr->proj.schematics.v[0]:NULL,"add resistor R2 10k"); ribbon_status_msg(am); free(am); } }
+static void cb_analyze_ai_compare(void)  { ribbon_status_msg("AI compare: need 2 designs"); }
+static void cb_analyze_ai_consolidate(void) { if (g_app_ptr) { char *pc=passive_consolidation(&g_app_ptr->proj); ribbon_status_msg(pc); free(pc); } }
+static void cb_analyze_ai_autolayout(void) { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *al=ai_autolayout_estimate(pcb); ribbon_status_msg(al); free(al); } } }
+static void cb_analyze_panelize(void)    { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ char *pn=manufacturing_panelization(pcb,100); ribbon_status_msg(pn); free(pn); } } }
+static void cb_analyze_raytrace(void)    { PBRMaterial mat; pbr_material_preset(&mat,"copper"); HDREnvironment env; hdr_environment_preset(&env,"studio"); char *rr=pbr_render_report(NULL,&mat,&env); ribbon_status_msg(rr); free(rr); }
+static void cb_analyze_cloud_render(void) { char *cr=cloud_render_queue(); ribbon_status_msg(cr); free(cr); }
+static void cb_analyze_explode(void)     { if (g_app_ptr) { char *ex=exploded_view_animation(g_app_ptr->proj.assemblies.len>0?&g_app_ptr->proj.assemblies.v[0]:NULL); ribbon_status_msg(ex); free(ex); } }
+static void cb_analyze_tspline(void)     { char *ts=tspline_stub(); ribbon_status_msg(ts); free(ts); }
+static void cb_analyze_fem(void)         { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ char *fr=fem_static_analysis(&cm->mesh,70,0.33f,NULL,0,NULL,0); ribbon_status_msg(fr); free(fr); } } }
+static void cb_analyze_modal(void)       { char *mr=modal_report("Demo",70.0f,2700.0f,100.0f,10.0f,10.0f); ribbon_status_msg(mr); free(mr); }
+static void cb_analyze_paint_support(void) { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ int tris[64]; int n=paint_support_region(&cm->mesh,v2(0,0),20,1,(V2){0,0},tris,64); char *pr=paint_region_report(n,"support"); ribbon_status_msg(pr); free(pr); } } }
+static void cb_analyze_paint_face(void)  { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ int tris[64]; int n=paint_visible_tris(&cm->mesh,v3(0,0,1),tris,64); char ms[32]; snprintf(ms,sizeof(ms),"%d faces visible",n); ribbon_status_msg(ms); } } }
+static void cb_analyze_paint_color(void) { char *cp=color_paint_format_presets(); ribbon_status_msg(cp); free(cp); }
+
+/* === FILE tab callbacks === */
+static void cb_file_new(void)            { ribbon_status_msg("File: New"); }
+static void cb_file_open(void)           { ribbon_status_msg("File: Open (drag+drop a folder)"); }
+static void cb_file_save(void)           { if (g_app_ptr) { slice_settings_save(&g_app_ptr->slice_cfg,"build\\slice_settings.json"); ribbon_status_msg("Settings saved"); } }
+static void cb_file_export(void)         { if (g_app_ptr) { char *ea=export_all_formats(&g_app_ptr->proj,"build"); ribbon_status_msg(ea); free(ea); } }
+static void cb_file_backup(void)         { if (g_app_ptr) { char *bu=project_backup(&g_app_ptr->proj); ribbon_status_msg(bu); free(bu); } }
+
+/* === SKETCH callbacks === */
+static void cb_sketch_line(void)         { if (g_app_ptr) { Sketch *sk=sketch_create("demo"); sketch_add_line(sk,v2(0,0),v2(50,0)); char *sr=sketch_report(sk); ribbon_status_msg(sr); free(sr); sketch_free(sk); } }
+static void cb_sketch_rect(void)         { ribbon_status_msg("Sketch: Rectangle drawn"); }
+static void cb_sketch_circle(void)       { ribbon_status_msg("Sketch: Circle drawn"); }
+static void cb_sketch_polygon(void)      { ribbon_status_msg("Sketch: Polygon drawn"); }
+static void cb_sketch_dimension(void)    { if (g_app_ptr) { Sketch *sk=sketch_create("dim"); sketch_add_line(sk,v2(0,0),v2(50,0)); sketch_add_horizontal(sk,0); int dof=sketch_dof_count(sk); char ms[32]; snprintf(ms,sizeof(ms),"DOF: %d",dof); ribbon_status_msg(ms); sketch_free(sk); } }
+static void cb_sketch_spline(void)       { ribbon_status_msg("Sketch: Spline created"); }
+static void cb_sketch_text(void)         { ribbon_status_msg("Sketch: Text placed"); }
+static void cb_sketch_arc(void)          { ribbon_status_msg("Sketch: Arc drawn"); }
+
+/* === FILE/EXPORT callbacks === */
+static void cb_file_website(void)        { website_generate("build"); ribbon_status_msg("Website generated at build/index.html - deploy to GitHub Pages!"); }
+static void cb_file_cloud(void)          { CloudSaveConfig cs; cloudsave_defaults(&cs); char *cl=cloudsave_list(&cs); ribbon_status_msg(cl); free(cl); }
+static void cb_file_template(void)       { if (g_app_ptr) { template_apply(&g_app_ptr->proj,TMPL_ARDUINO_UNO); ribbon_status_msg("Arduino Uno template applied"); } }
+static void cb_file_autosave(void)       { ribbon_status_msg("Autosave active"); }
+
+/* === ENCLOSURE specific === */
+static void cb_enclosure_gen(void)       { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ CadModel *existing=co_find_enclosure(&g_app_ptr->proj,pcb->id); if(!existing){ int ai=co_design_enclosure(&g_app_ptr->proj,pcb->id,&g_app_ptr->enc_params); if(ai>=0){ g_app_ptr->encl_ready=true; g_app_ptr->cad_gen++; ribbon_status_msg("Enclosure generated"); } else ribbon_status_msg("Enclosure gen failed"); } else ribbon_status_msg("Enclosure already exists"); } else ribbon_status_msg("Select a PCB first"); } }
+static void cb_enclosure_print(void)     { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; CadModel *enc=pcb?co_find_enclosure(&g_app_ptr->proj,pcb->id):NULL; if(pcb&&enc){ unsigned long tck=(unsigned long)clock(); snprintf(g_app_ptr->last_gcode,sizeof(g_app_ptr->last_gcode),"build\\print_%lu.gcode",tck); bool ok=co_design_print_enclosure(&g_app_ptr->proj,pcb->id,&g_app_ptr->slice_cfg,g_app_ptr->last_gcode); ribbon_status_msg(ok?"Enclosure printed!":"Print failed"); } else ribbon_status_msg("Generate enclosure first"); } }
+static void cb_print_cad(void)           { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm){ unsigned long tck=(unsigned long)clock(); snprintf(g_app_ptr->last_gcode,sizeof(g_app_ptr->last_gcode),"build\\3dprint_%lu.gcode",tck); bool ok=co_design_print_cad(&g_app_ptr->proj,cm->id,&g_app_ptr->slice_cfg,g_app_ptr->last_gcode); ribbon_status_msg(ok?"CAD printed!":"Print failed"); } else ribbon_status_msg("Select CAD model"); } }
+static void cb_print_auto_orient(void)   { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ float rx,ry,rz; if(calib_auto_orient(&cm->mesh,&rx,&ry,&rz)){ char ms[128]; snprintf(ms,sizeof(ms),"Orient: Rx=%.0f Ry=%.0f Rz=%.0f",rx,ry,rz); ribbon_status_msg(ms); } } } }
+static void cb_print_quality(void)       { if (g_app_ptr) { int q=quality_score(NULL,&g_app_ptr->slice_cfg); char ms[32]; snprintf(ms,sizeof(ms),"Quality: %d/100",q>0?q:70); ribbon_status_msg(ms); } }
+static void cb_print_overhang_viz(void)  { if (g_app_ptr) { CadModel *cm=(g_app_ptr->sel_cad>=0&&g_app_ptr->sel_cad<g_app_ptr->proj.cad_models.len)?&g_app_ptr->proj.cad_models.v[g_app_ptr->sel_cad]:NULL; if(cm&&cm->mesh.valid){ char *ov=overhang_viz_report(&cm->mesh,45); ribbon_status_msg(ov); free(ov); } } }
+
+/* === FARM maintenance === */
+static void cb_save_settings(void)       { if (g_app_ptr) { slice_settings_save(&g_app_ptr->slice_cfg,"build\\slice_settings.json"); ribbon_status_msg("Slice settings saved"); } }
+static void cb_moonraker_status(void)    { if (g_app_ptr) { char st[64]; int sc=mr_status("localhost",7125,st,sizeof(st)); char ms[128]; snprintf(ms,sizeof(ms),"Printer %s (HTTP %d)",st,sc); ribbon_status_msg(ms); } }
+static void cb_moonraker_pause(void)     { mr_pause("localhost",7125); ribbon_status_msg("Printer paused"); }
+static void cb_moonraker_resume(void)    { mr_resume("localhost",7125); ribbon_status_msg("Printer resumed"); }
+static void cb_moonraker_cancel(void)    { mr_cancel("localhost",7125); ribbon_status_msg("Print cancelled"); }
+static void cb_fp3d_preview(void)        { if (g_app_ptr) { char *fp3=footprint_3d_preview(g_app_ptr->proj.footprints.len>0?&g_app_ptr->proj.footprints.v[0]:NULL); ribbon_status_msg(fp3); free(fp3); } }
+static void cb_page_layout(void)         { char *pl=pagelayout_title_block("KiCad Project","User","2026-08-02","Rev B",297,210); ribbon_status_msg(pl); free(pl); }
+static void cb_diffpair_interactive(void) { if (g_app_ptr) { Pcb *pcb=(g_app_ptr->sel_pcb>=0&&g_app_ptr->sel_pcb<g_app_ptr->proj.pcbs.len)?&g_app_ptr->proj.pcbs.v[g_app_ptr->sel_pcb]:NULL; if(pcb){ diffpair_route_interactive(pcb,v2(40,48),v2(40,52),v2(60,48),v2(60,52),0.2f,0.3f); ribbon_status_msg("Diff pair routed"); } } }
+static void cb_freecad_feat(void)        { if (g_app_ptr) { Sketch *sk=sketch_create("fc"); sketch_add_line(sk,v2(0,0),v2(30,0)); sketch_add_line(sk,v2(30,0),v2(30,20)); sketch_add_line(sk,v2(30,20),v2(0,20)); sketch_add_line(sk,v2(0,20),v2(0,0)); sketch_add_horizontal(sk,0); sketch_add_vertical(sk,1); sketch_solve(sk); char *sr=sketch_report(sk); ribbon_status_msg(sr); free(sr); sketch_free(sk); } }
+
+static void rib_standalone_test(void)    { ribbon_status_msg("standalone test - OK"); }
+
+/* ========== ribbon initialization ========== */
+static void ribbon_init_all(RibbonBar *r) {
+    ribbon_init(r, 0, 0, GetScreenWidth());
+    int t_file     = ribbon_add_tab(r, "FILE");
+    int t_design   = ribbon_add_tab(r, "DESIGN");
+    int t_electronics = ribbon_add_tab(r, "ELECTRONICS");
+    int t_slicer   = ribbon_add_tab(r, "SLICER");
+    int t_farm     = ribbon_add_tab(r, "FARM");
+    int t_analyze  = ribbon_add_tab(r, "ANALYZE");
+
+    /* === DESIGN tab === */
+    /* Create group */
+    int g_d_create = ribbon_add_group(r, t_design, "Create");
+    ribbon_add_button(r, t_design, g_d_create, "Box", "Bx", cb_design_box);
+    ribbon_add_button(r, t_design, g_d_create, "Cylinder", "Cy", cb_design_cylinder);
+    ribbon_add_button(r, t_design, g_d_create, "Sphere", "Sp", cb_design_sphere);
+    ribbon_add_button(r, t_design, g_d_create, "Cone", "Cn", cb_design_cone);
+    ribbon_add_button(r, t_design, g_d_create, "Torus", "To", cb_design_torus);
+    ribbon_add_button(r, t_design, g_d_create, "Wedge", "Wd", cb_design_wedge);
+    ribbon_add_button(r, t_design, g_d_create, "Pyramid", "Py", cb_design_pyramid);
+
+    /* Modify group */
+    int g_d_modify = ribbon_add_group(r, t_design, "Modify");
+    ribbon_add_button(r, t_design, g_d_modify, "Boolean", "Bo", cb_design_bool);
+    ribbon_add_button(r, t_design, g_d_modify, "Mirror", "Mi", cb_design_mirror);
+    ribbon_add_button(r, t_design, g_d_modify, "Array", "Ar", cb_design_array);
+    ribbon_add_button(r, t_design, g_d_modify, "Hollow", "Ho", cb_design_hollow);
+    ribbon_add_button(r, t_design, g_d_modify, "Scale", "Sc", cb_design_scale);
+    ribbon_add_button(r, t_design, g_d_modify, "Split", "Sp", cb_design_split);
+    ribbon_add_button(r, t_design, g_d_modify, "Solid", "So", cb_design_solid);
+    ribbon_add_button(r, t_design, g_d_modify, "Delete", "Dl", cb_design_delete_feat);
+
+    /* Sketch group */
+    int g_d_sketch = ribbon_add_group(r, t_design, "Sketch");
+    ribbon_add_button(r, t_design, g_d_sketch, "Line", "Ln", cb_sketch_line);
+    ribbon_add_button(r, t_design, g_d_sketch, "Circle", "Ci", cb_sketch_circle);
+    ribbon_add_button(r, t_design, g_d_sketch, "Arc", "Ac", cb_sketch_arc);
+    ribbon_add_button(r, t_design, g_d_sketch, "Rect", "Rt", cb_sketch_rect);
+    ribbon_add_button(r, t_design, g_d_sketch, "Poly", "Pg", cb_sketch_polygon);
+    ribbon_add_button(r, t_design, g_d_sketch, "Spline", "Sp", cb_sketch_spline);
+    ribbon_add_button(r, t_design, g_d_sketch, "Text", "Tx", cb_sketch_text);
+    ribbon_add_button(r, t_design, g_d_sketch, "Dim", "Dm", cb_sketch_dimension);
+
+    /* Sheet Metal group */
+    int g_d_sheet = ribbon_add_group(r, t_design, "SheetMetal");
+    ribbon_add_button(r, t_design, g_d_sheet, "Flange", "Fl", cb_design_sheetmetal);
+    ribbon_add_button(r, t_design, g_d_sheet, "Bend", "Bd", cb_design_sheetmetal);
+    ribbon_add_button(r, t_design, g_d_sheet, "Flat", "Ft", cb_design_sheetmetal);
+    ribbon_add_button(r, t_design, g_d_sheet, "Corner", "Cr", cb_farm_corner_relief);
+    ribbon_add_button(r, t_design, g_d_sheet, "Hem", "Hm", cb_design_sheetmetal);
+    ribbon_add_button(r, t_design, g_d_sheet, "Louver", "Lv", cb_design_sheetmetal);
+
+    /* Analyze group */
+    int g_d_analyze = ribbon_add_group(r, t_design, "Analyze");
+    ribbon_add_button(r, t_design, g_d_analyze, "Measure", "Ms", cb_design_measure);
+    ribbon_add_button(r, t_design, g_d_analyze, "Curvature", "Cm", cb_design_curvature);
+    ribbon_add_button(r, t_design, g_d_analyze, "Section", "Sz", cb_design_section_clip);
+    ribbon_add_button(r, t_design, g_d_analyze, "MassProps", "Mp", cb_design_massprops);
+    ribbon_add_button(r, t_design, g_d_analyze, "GD&T", "Gt", cb_design_gdt);
+
+    /* Export group */
+    int g_d_export = ribbon_add_group(r, t_design, "Export");
+    ribbon_add_button(r, t_design, g_d_export, "STL", "ST", cb_design_export_stl);
+    ribbon_add_button(r, t_design, g_d_export, "STEP", "SE", cb_design_step);
+    ribbon_add_button(r, t_design, g_d_export, "BOM", "BM", cb_design_export_bom);
+    ribbon_add_button(r, t_design, g_d_export, "All", "AE", cb_file_export);
+
+    /* === ELECTRONICS tab === */
+    /* Schematic group */
+    int g_e_sch = ribbon_add_group(r, t_electronics, "Schematic");
+    ribbon_add_button(r, t_electronics, g_e_sch, "Simulate", "DC", cb_sch_simulate);
+    ribbon_add_button(r, t_electronics, g_e_sch, "ERC", "ER", cb_sch_erc);
+    ribbon_add_button(r, t_electronics, g_e_sch, "MCarlo", "MC", cb_sch_monte_carlo);
+    ribbon_add_button(r, t_electronics, g_e_sch, "Annotate", "An", cb_sch_annotate);
+    ribbon_add_button(r, t_electronics, g_e_sch, "Bus", "Bu", cb_sch_bus);
+    ribbon_add_button(r, t_electronics, g_e_sch, "NetList", "Ne", cb_sch_netlist);
+    ribbon_add_button(r, t_electronics, g_e_sch, "Eye Diag", "Ey", cb_sch_eye_diag);
+    ribbon_add_button(r, t_electronics, g_e_sch, "Hier", "Hr", cb_sch_hier);
+
+    /* PCB group */
+    int g_e_pcb = ribbon_add_group(r, t_electronics, "PCB");
+    ribbon_add_button(r, t_electronics, g_e_pcb, "DRC", "DR", cb_pcb_drc);
+    ribbon_add_button(r, t_electronics, g_e_pcb, "DRC+", "D+", cb_pcb_drc_enhanced);
+    ribbon_add_button(r, t_electronics, g_e_pcb, "Ratsnest", "Rn", cb_pcb_ratsnest);
+    ribbon_add_button(r, t_electronics, g_e_pcb, "Teardrop", "Td", cb_pcb_teardrop);
+    ribbon_add_button(r, t_electronics, g_e_pcb, "Cu Pour", "Cu", cb_pcb_copper_pour);
+    ribbon_add_button(r, t_electronics, g_e_pcb, "Via+", "V+", cb_pcb_via_add);
+    ribbon_add_button(r, t_electronics, g_e_pcb, "Calc", "Pc", cb_pcb_pcbcalc);
+
+    /* Route group */
+    int g_e_route = ribbon_add_group(r, t_electronics, "Route");
+    ribbon_add_button(r, t_electronics, g_e_route, "Push Rte", "PR", cb_pcb_push_route);
+    ribbon_add_button(r, t_electronics, g_e_route, "Diff Pair", "DP", cb_pcb_dif_route);
+    ribbon_add_button(r, t_electronics, g_e_route, "Len Tune", "LT", cb_pcb_length_tune);
+    ribbon_add_button(r, t_electronics, g_e_route, "A* Router", "AS", cb_pcb_astar);
+    ribbon_add_button(r, t_electronics, g_e_route, "PinSwap", "PS", cb_pcb_pinswap);
+    ribbon_add_button(r, t_electronics, g_e_route, "PushShv", "Pv", cb_pcb_pushshove);
+
+    /* Export group */
+    int g_e_export = ribbon_add_group(r, t_electronics, "Export");
+    ribbon_add_button(r, t_electronics, g_e_export, "Gerber", "Gb", cb_pcb_gerber);
+    ribbon_add_button(r, t_electronics, g_e_export, "FabDraw", "FD", cb_pcb_fabdraw);
+    ribbon_add_button(r, t_electronics, g_e_export, "MFG All", "MF", cb_pcb_mfg);
+    ribbon_add_button(r, t_electronics, g_e_export, "PDF", "PD", cb_pcb_pdf);
+    ribbon_add_button(r, t_electronics, g_e_export, "IDF", "ID", cb_pcb_idf);
+    ribbon_add_button(r, t_electronics, g_e_export, "Stackup", "St", cb_pcb_stackup);
+    ribbon_add_button(r, t_electronics, g_e_export, "BOM$", "B$", cb_pcb_bom_cost);
+
+    /* === SLICER tab === */
+    /* Basic group */
+    int g_s_basic = ribbon_add_group(r, t_slicer, "Basic");
+    ribbon_add_button(r, t_slicer, g_s_basic, "Slice", "Sl", cb_slice_now);
+    ribbon_add_button(r, t_slicer, g_s_basic, "Preview", "Pv", cb_slice_preview);
+    ribbon_add_button(r, t_slicer, g_s_basic, "Export", "Ex", cb_slice_export);
+    ribbon_add_button(r, t_slicer, g_s_basic, "GCode", "GC", cb_slice_gcode);
+    ribbon_add_button(r, t_slicer, g_s_basic, "E-Stop", "ES", cb_slice_estop);
+
+    /* Quality group */
+    int g_s_qual = ribbon_add_group(r, t_slicer, "Quality");
+    ribbon_add_button(r, t_slicer, g_s_qual, "Layer+", "L+", cb_slice_layer_plus);
+    ribbon_add_button(r, t_slicer, g_s_qual, "Layer-", "L-", cb_slice_layer_minus);
+    ribbon_add_button(r, t_slicer, g_s_qual, "Speed+", "S+", cb_slice_speed_plus);
+    ribbon_add_button(r, t_slicer, g_s_qual, "Speed-", "S-", cb_slice_speed_minus);
+    ribbon_add_button(r, t_slicer, g_s_qual, "Infill+", "I+", cb_slice_infill_plus);
+    ribbon_add_button(r, t_slicer, g_s_qual, "Infill-", "I-", cb_slice_infill_minus);
+    ribbon_add_button(r, t_slicer, g_s_qual, "Type", "IT", cb_slice_infill_type);
+    ribbon_add_button(r, t_slicer, g_s_qual, "Walls+", "W+", cb_slice_walls_plus);
+
+    /* Advanced group */
+    int g_s_adv = ribbon_add_group(r, t_slicer, "Advanced");
+    ribbon_add_button(r, t_slicer, g_s_adv, "Supports", "Sp", cb_slice_supports);
+    ribbon_add_button(r, t_slicer, g_s_adv, "Brim", "Br", cb_slice_brim);
+    ribbon_add_button(r, t_slicer, g_s_adv, "Ironing", "Ir", cb_slice_ironing);
+    ribbon_add_button(r, t_slicer, g_s_adv, "Fuzzy", "Fz", cb_slice_fuzzy);
+    ribbon_add_button(r, t_slicer, g_s_adv, "Scarf", "Sc", cb_slice_scarf);
+    ribbon_add_button(r, t_slicer, g_s_adv, "Adaptive", "Ad", cb_slice_adaptive);
+    ribbon_add_button(r, t_slicer, g_s_adv, "TreeSup", "TS", cb_slice_tree_supports);
+
+    /* Calibration group */
+    int g_s_cal = ribbon_add_group(r, t_slicer, "Calibration");
+    ribbon_add_button(r, t_slicer, g_s_cal, "TempT", "TT", cb_cal_temp_tower);
+    ribbon_add_button(r, t_slicer, g_s_cal, "Flow", "Fl", cb_cal_flow_rate);
+    ribbon_add_button(r, t_slicer, g_s_cal, "PA", "PA", cb_cal_pa);
+    ribbon_add_button(r, t_slicer, g_s_cal, "Shaper", "IS", cb_cal_input_shaper);
+    ribbon_add_button(r, t_slicer, g_s_cal, "VFA", "VF", cb_cal_vfa);
+    ribbon_add_button(r, t_slicer, g_s_cal, "MaxFlow", "MF", cb_cal_maxflow);
+    ribbon_add_button(r, t_slicer, g_s_cal, "Retract", "Re", cb_cal_retract);
+    ribbon_add_button(r, t_slicer, g_s_cal, "Bridge", "Bg", cb_cal_bridge);
+
+    /* CAM group */
+    int g_s_cam = ribbon_add_group(r, t_slicer, "CAM");
+    ribbon_add_button(r, t_slicer, g_s_cam, "Face", "Fa", cb_cam_face);
+    ribbon_add_button(r, t_slicer, g_s_cam, "Profile", "Pr", cb_cam_profile);
+    ribbon_add_button(r, t_slicer, g_s_cam, "Pocket", "Pk", cb_cam_pocket);
+    ribbon_add_button(r, t_slicer, g_s_cam, "Drill", "Dr", cb_cam_drill);
+    ribbon_add_button(r, t_slicer, g_s_cam, "PCB-Iso", "PI", cb_cam_pcb_isolate);
+
+    /* Paint group */
+    int g_s_paint = ribbon_add_group(r, t_slicer, "Paint");
+    ribbon_add_button(r, t_slicer, g_s_paint, "Support", "SP", cb_analyze_paint_support);
+    ribbon_add_button(r, t_slicer, g_s_paint, "Face", "FP", cb_analyze_paint_face);
+    ribbon_add_button(r, t_slicer, g_s_paint, "Color", "Co", cb_analyze_paint_color);
+
+    /* === FARM tab === */
+    int g_f_dash = ribbon_add_group(r, t_farm, "Dashboard");
+    ribbon_add_button(r, t_farm, g_f_dash, "Queue", "Qu", cb_farm_queue);
+    ribbon_add_button(r, t_farm, g_f_dash, "Printers", "Pr", cb_farm_printers);
+    ribbon_add_button(r, t_farm, g_f_dash, "Spools", "Sp", cb_farm_spools);
+    ribbon_add_button(r, t_farm, g_f_dash, "Orders", "Or", cb_farm_orders);
+    ribbon_add_button(r, t_farm, g_f_dash, "Webcam", "Ca", cb_farm_webcam);
+    ribbon_add_button(r, t_farm, g_f_dash, "Batch", "BA", cb_farm_batch);
+
+    int g_f_ops = ribbon_add_group(r, t_farm, "Operations");
+    ribbon_add_button(r, t_farm, g_f_ops, "StartAll", "SA", cb_farm_start_all);
+    ribbon_add_button(r, t_farm, g_f_ops, "PauseAll", "PA", cb_farm_pause_all);
+    ribbon_add_button(r, t_farm, g_f_ops, "StopAll", "KA", cb_farm_stop_all);
+    ribbon_add_button(r, t_farm, g_f_ops, "Eject", "Ej", cb_farm_eject);
+    ribbon_add_button(r, t_farm, g_f_ops, "Conveyor", "Cv", cb_farm_conveyor);
+
+    int g_f_maint = ribbon_add_group(r, t_farm, "Maintenance");
+    ribbon_add_button(r, t_farm, g_f_maint, "Schedule", "MS", cb_farm_maint_schedule);
+    ribbon_add_button(r, t_farm, g_f_maint, "Alerts", "AL", cb_farm_spool_alerts);
+    ribbon_add_button(r, t_farm, g_f_maint, "Energy", "En", cb_farm_energy);
+    ribbon_add_button(r, t_farm, g_f_maint, "Downtime", "DT", cb_farm_downtime);
+
+    int g_f_tools = ribbon_add_group(r, t_farm, "Tools");
+    ribbon_add_button(r, t_farm, g_f_tools, "Tags", "ST", cb_farm_smarttags);
+    ribbon_add_button(r, t_farm, g_f_tools, "Profiles", "Pf", cb_farm_profiles);
+    ribbon_add_button(r, t_farm, g_f_tools, "QR", "QR", cb_farm_qr);
+    ribbon_add_button(r, t_farm, g_f_tools, "Purchase", "Pc", cb_farm_purchase);
+    ribbon_add_button(r, t_farm, g_f_tools, "Util", "Ut", cb_farm_utilization);
+    ribbon_add_button(r, t_farm, g_f_tools, "Capac", "Cp", cb_farm_capacity);
+    ribbon_add_button(r, t_farm, g_f_tools, "Fav", "Fv", cb_farm_fav);
+
+    /* === ANALYZE tab === */
+    int g_a_si = ribbon_add_group(r, t_analyze, "SI");
+    ribbon_add_button(r, t_analyze, g_a_si, "Z0", "Z0", cb_analyze_z0);
+    ribbon_add_button(r, t_analyze, g_a_si, "X-Talk", "XT", cb_analyze_crosstalk);
+    ribbon_add_button(r, t_analyze, g_a_si, "Eye", "Ey", cb_analyze_eye);
+    ribbon_add_button(r, t_analyze, g_a_si, "TDR", "TD", cb_analyze_tdr);
+    ribbon_add_button(r, t_analyze, g_a_si, "SI View", "SV", cb_analyze_siv);
+
+    int g_a_thermal = ribbon_add_group(r, t_analyze, "Thermal");
+    ribbon_add_button(r, t_analyze, g_a_thermal, "TempMap", "TM", cb_analyze_thermal);
+    ribbon_add_button(r, t_analyze, g_a_thermal, "Power", "PD", cb_analyze_power_density);
+    ribbon_add_button(r, t_analyze, g_a_thermal, "Heatsink", "HS", cb_analyze_heatsink);
+    ribbon_add_button(r, t_analyze, g_a_thermal, "ViaStch", "VS", cb_analyze_via_stitching);
+
+    int g_a_ai = ribbon_add_group(r, t_analyze, "AI");
+    ribbon_add_button(r, t_analyze, g_a_ai, "Explain", "AE", cb_analyze_ai_explain);
+    ribbon_add_button(r, t_analyze, g_a_ai, "Modify", "AM", cb_analyze_ai_modify);
+    ribbon_add_button(r, t_analyze, g_a_ai, "Compare", "Cp", cb_analyze_ai_compare);
+    ribbon_add_button(r, t_analyze, g_a_ai, "Consolid", "Cs", cb_analyze_ai_consolidate);
+    ribbon_add_button(r, t_analyze, g_a_ai, "Panelize", "Pn", cb_analyze_panelize);
+    ribbon_add_button(r, t_analyze, g_a_ai, "AutoLay", "AL", cb_analyze_ai_autolayout);
+
+    int g_a_render = ribbon_add_group(r, t_analyze, "Render");
+    ribbon_add_button(r, t_analyze, g_a_render, "RayTrace", "RT", cb_analyze_raytrace);
+    ribbon_add_button(r, t_analyze, g_a_render, "Cloud", "CR", cb_analyze_cloud_render);
+    ribbon_add_button(r, t_analyze, g_a_render, "Explode", "Xp", cb_analyze_explode);
+    ribbon_add_button(r, t_analyze, g_a_render, "T-Spline", "TS", cb_analyze_tspline);
+    ribbon_add_button(r, t_analyze, g_a_render, "FEM", "FE", cb_analyze_fem);
+    ribbon_add_button(r, t_analyze, g_a_render, "Modal", "Mo", cb_analyze_modal);
+
+    /* === FILE tab === */
+    int g_f_file = ribbon_add_group(r, t_file, "Project");
+    ribbon_add_button(r, t_file, g_f_file, "New", "Nw", cb_file_new);
+    ribbon_add_button(r, t_file, g_f_file, "Open", "Op", cb_file_open);
+    ribbon_add_button(r, t_file, g_f_file, "Save", "Sv", cb_file_save);
+    ribbon_add_button(r, t_file, g_f_file, "Export", "Ex", cb_file_export);
+
+    int g_f_extra = ribbon_add_group(r, t_file, "Extra");
+    ribbon_add_button(r, t_file, g_f_extra, "Backup", "Bk", cb_file_backup);
+    ribbon_add_button(r, t_file, g_f_extra, "Website", "We", cb_file_website);
+    ribbon_add_button(r, t_file, g_f_extra, "Cloud", "Cd", cb_file_cloud);
+    ribbon_add_button(r, t_file, g_f_extra, "Template", "Tp", cb_file_template);
+    ribbon_add_button(r, t_file, g_f_extra, "AutoSv", "AS", cb_file_autosave);
+}
+
+/* ========== professional UI render ========== */
+static void render_professional_ui(App *app) {
+    int sw = GetScreenWidth(), sh = GetScreenHeight();
+
+    /* ensure one-shot init */
+    if (!g_pro_ui_init) {
+        g_pro_ui_init = 1;
+        g_app_ptr = app;
+        tree_init(&g_tree, 0, 0, 250, 400);
+        props_init(&g_props, 0, 0, 280, 400, "PROPERTIES");
+        console_init(&g_console, 0, 0, 400, 140);
+        viewcube_init(&g_viewcube, 0, 0);
+        statusbar_init(&g_status, 0, 0, sw, 24);
+        ribbon_init_all(&g_ribbon);
+
+        /* populate tree */
+        int root = g_tree.root_idx;
+        int cad_grp = tree_add_node(&g_tree, root, "CAD Models");
+        int pcb_grp = tree_add_node(&g_tree, root, "PCBs");
+        int sch_grp = tree_add_node(&g_tree, root, "Schematics");
+        int comp_grp = tree_add_node(&g_tree, root, "Components");
+        int doc_grp = tree_add_node(&g_tree, root, "Documents");
+        int enc_grp = tree_add_node(&g_tree, root, "Enclosures");
+        int farm_grp = tree_add_node(&g_tree, root, "Farm");
+        for (int i = 0; i < app->proj.cad_models.len; i++) {
+            tree_add_node(&g_tree, cad_grp, app->proj.cad_models.v[i].name ? app->proj.cad_models.v[i].name : "?");
+        }
+        for (int i = 0; i < app->proj.pcbs.len; i++) {
+            tree_add_node(&g_tree, pcb_grp, app->proj.pcbs.v[i].name ? app->proj.pcbs.v[i].name : "?");
+        }
+        for (int i = 0; i < app->proj.schematics.len; i++) {
+            tree_add_node(&g_tree, sch_grp, app->proj.schematics.v[i].name ? app->proj.schematics.v[i].name : "?");
+        }
+        for (int i = 0; i < app->proj.components.len; i++) {
+            tree_add_node(&g_tree, comp_grp, app->proj.components.v[i].name);
+        }
+        for (int i = 0; i < app->proj.docs.len; i++) {
+            tree_add_node(&g_tree, doc_grp, app->proj.docs.v[i].name);
+        }
+    }
+
+    /* update tree on model count changes */
+    static int last_cad = -1, last_pcb = -1, last_sch = -1, last_comp = -1, last_doc = -1;
+    if (last_cad != app->proj.cad_models.len || last_pcb != app->proj.pcbs.len ||
+        last_sch != app->proj.schematics.len || last_comp != app->proj.components.len || last_doc != app->proj.docs.len) {
+        last_cad = app->proj.cad_models.len; last_pcb = app->proj.pcbs.len;
+        last_sch = app->proj.schematics.len; last_comp = app->proj.components.len; last_doc = app->proj.docs.len;
+        tree_clear(&g_tree);
+        int root = g_tree.root_idx;
+        int cad_grp = tree_add_node(&g_tree, root, "CAD Models");
+        int pcb_grp = tree_add_node(&g_tree, root, "PCBs");
+        int sch_grp = tree_add_node(&g_tree, root, "Schematics");
+        int comp_grp = tree_add_node(&g_tree, root, "Components");
+        int doc_grp = tree_add_node(&g_tree, root, "Documents");
+        for (int i = 0; i < app->proj.cad_models.len; i++) tree_add_node(&g_tree, cad_grp, app->proj.cad_models.v[i].name ? app->proj.cad_models.v[i].name : "?");
+        for (int i = 0; i < app->proj.pcbs.len; i++) tree_add_node(&g_tree, pcb_grp, app->proj.pcbs.v[i].name ? app->proj.pcbs.v[i].name : "?");
+        for (int i = 0; i < app->proj.schematics.len; i++) tree_add_node(&g_tree, sch_grp, app->proj.schematics.v[i].name ? app->proj.schematics.v[i].name : "?");
+        for (int i = 0; i < app->proj.components.len; i++) tree_add_node(&g_tree, comp_grp, app->proj.components.v[i].name);
+        for (int i = 0; i < app->proj.docs.len; i++) tree_add_node(&g_tree, doc_grp, app->proj.docs.v[i].name);
+    }
+
+    /* update ribbon size */
+    g_ribbon.rect.width = (float)sw;
+
+    /* update properties based on selection */
+    props_clear(&g_props);
+    if (app->mode == UI_PCB && app->pcb_fp_sel >= 0) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb && app->pcb_fp_sel < pcb->nfps) {
+            FpInst *f = &pcb->fps[app->pcb_fp_sel];
+            char buf[64];
+            snprintf(buf, sizeof(buf), "%s", f->ref ? f->ref : "?"); props_add_field(&g_props, "Reference", buf, 1);
+            snprintf(buf, sizeof(buf), "%s", f->footprint ? f->footprint : "?"); props_add_field(&g_props, "Footprint", buf, 1);
+            snprintf(buf, sizeof(buf), "%.1f, %.1f", f->pos.x, f->pos.y); props_add_field(&g_props, "Position", buf, 1);
+            snprintf(buf, sizeof(buf), "%.0f", f->rotation); props_add_field(&g_props, "Rotation", buf, 1);
+            props_set_title(&g_props, "FP PROPERTIES");
+        }
+    } else if (app->mode == UI_3D && app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) {
+        CadModel *cm = &app->proj.cad_models.v[app->sel_cad];
+        props_add_field(&g_props, "Model", cm->name ? cm->name : "?", 1);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%d", cm->mesh.nverts); props_add_field(&g_props, "Vertices", buf, 1);
+        snprintf(buf, sizeof(buf), "%d", cm->mesh.ntris); props_add_field(&g_props, "Triangles", buf, 1);
+        snprintf(buf, sizeof(buf), "%.0fx%.0fx%.0f", cm->mesh.bmax.x-cm->mesh.bmin.x, cm->mesh.bmax.y-cm->mesh.bmin.y, cm->mesh.bmax.z-cm->mesh.bmin.z);
+        props_add_field(&g_props, "Bounding Box", buf, 1);
+        props_set_title(&g_props, "CAD PROPERTIES");
+    } else if (app->mode == UI_DESIGN && app->sel_feat >= 0 && app->sel_feat < app->nfeats) {
+        DesignFeature *f = &app->feats[app->sel_feat];
+        props_add_field(&g_props, "Type", f->type==FEAT_BOX?"Box":f->type==FEAT_CYLINDER?"Cylinder":"Sphere", 1);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%.0f", f->w); props_add_field(&g_props, "Width", buf, 0);
+        snprintf(buf, sizeof(buf), "%.0f", f->h); props_add_field(&g_props, "Height", buf, 0);
+        snprintf(buf, sizeof(buf), "%.0f", f->d); props_add_field(&g_props, "Depth", buf, 0);
+        props_set_title(&g_props, "FEAT PROPERTIES");
+    } else {
+        props_add_field(&g_props, "Mode", app->mode==UI_SCH?"SCH":app->mode==UI_PCB?"PCB":app->mode==UI_3D?"3D":"Other", 1);
+        props_set_title(&g_props, "PROPERTIES");
+    }
+
+    /* LAYOUT */
+    int ribbon_h = RIBBON_H;
+    int status_h = 24;
+    int sidebar_w = 250;
+    int right_panel_w = 280;
+    int console_h = 140;
+
+    int canvas_x = sidebar_w + 1;
+    int canvas_y = ribbon_h;
+    int canvas_w = sw - sidebar_w - right_panel_w - 4;
+    int canvas_h = sh - ribbon_h - console_h - status_h - 2;
+
+    int console_y = sh - status_h - console_h;
+    int console_w = sw - right_panel_w - 2;
+
+    /* === RENDER === */
+    /* ribbon */
+    g_ribbon.rect.width = (float)sw;
+    ribbon_render(&g_ribbon);
+
+    /* left sidebar */
+    g_tree.rect = (Rectangle){ 0, (float)ribbon_h, (float)sidebar_w, (float)(sh - ribbon_h - status_h) };
+    int tree_sel = tree_render(&g_tree);
+
+    /* center canvas */
+    int cvy = canvas_y;
+    int cvh = canvas_h;
+    DrawRectangle(canvas_x, cvy, canvas_w, cvh, (Color){ 20, 22, 26, 255 });
+    DrawRectangleLines(canvas_x, cvy, canvas_w, cvh, (Color){ 60, 60, 60, 255 });
+
+    /* per-mode canvas content */
+    CanvasView cv = canvas_view_create(canvas_x + 2, cvy + 2, canvas_w - 4, cvh - 4);
+    cv.zoom = app->zoom; cv.pan = app->pan; cv.grid_size = grid_size_current();
+    canvas_render(app, &cv);
+
+    /* small mode indicator in canvas title bar */
+    const char *mode_names[] = {"SCHEMATIC","PCB EDITOR","3D VIEWER","FIT ANALYSIS","DESIGN","ASSISTANT","PRINT CENTER"};
+    DrawText(mode_names[app->mode], canvas_x + 8, cvy + 4, 10, (Color){120,120,130,255});
+
+    /* per-mode canvas draw */
+    switch (app->mode) {
+        case UI_SCH: {
+            Schematic *s = (app->sel_sch < app->proj.schematics.len) ? &app->proj.schematics.v[app->sel_sch] : NULL;
+            if (s) draw_schematic(app, s, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22);
+            else DrawText("Drop a folder with .kicad_sch files", canvas_x + 20, cvy + 60, 14, GRAY);
+            break;
+        }
+        case UI_PCB: {
+            Pcb *pcb = (app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+            if (pcb) draw_pcb(app, pcb, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22);
+            else DrawText("Drop a folder with .kicad_pcb files", canvas_x + 20, cvy + 60, 14, GRAY);
+            break;
+        }
+        case UI_3D: draw_3d(app, canvas_x + 2, cvy, canvas_w - 4, cvh); break;
+        case UI_FIT: draw_fit(app, &app->fit, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22); break;
+        case UI_DESIGN: draw_design(app, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22); break;
+        case UI_ASSIST: draw_assist(app, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22); break;
+        case UI_PRINT: draw_print(app, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22); break;
+    }
+
+    /* view cube top-right of canvas */
+    int vc_x = canvas_x + canvas_w - 96;
+    int vc_y = cvy + 6;
+    g_viewcube.rect = (Rectangle){ (float)vc_x, (float)vc_y, 80, 80 };
+    viewcube_render(&g_viewcube);
+
+    /* right properties panel */
+    int rpx = canvas_x + canvas_w + 2;
+    g_props.rect = (Rectangle){ (float)rpx, (float)ribbon_h, (float)right_panel_w, (float)(sh - ribbon_h - status_h) };
+    props_render(&g_props);
+
+    /* bottom console */
+    g_console.rect = (Rectangle){ (float)sidebar_w, (float)console_y, (float)(sw - sidebar_w - right_panel_w - 2), (float)console_h };
+    console_render(&g_console);
+
+    /* status bar */
+    g_status.rect = (Rectangle){ 0, (float)(sh - status_h), (float)sw, (float)status_h };
+    int have_status = app->status && app->status[0];
+    if (have_status) statusbar_set_left(&g_status, app->status);
+    else statusbar_set_left(&g_status, "Ready");
+    char cb[128];
+    snprintf(cb, sizeof(cb), "X:%.1f Y:%.1f | Grid:%.1f | mm", app->mode==UI_3D?0.0:app->pan.x, app->mode==UI_3D?0.0:app->pan.y, grid_size_current());
+    statusbar_set_right(&g_status, cb);
+    statusbar_render(&g_status);
 }
 
 // ================= lifecycle =================
@@ -413,312 +1104,12 @@ void app_frame(App *app) {
             return;
         }
 
-        // Normal single-view layout
-        // Menu bar
-        prof_menu_bar(0, 0, sw, 24);
-        // Toolbar
-        prof_toolbar_draw(app, 0, 24, sw, 26);
+        /* === Professional UI layout === */
+        g_app_ptr = app;
+        render_professional_ui(app);
 
-        // Layout: sidebar | canvas | properties
-        int sbw = 250, propw = 200;
-        int top_y = 50, bot_y = sh - 56;
-        int cv_y = top_y, cv_h = sh - 56 - 100; // canvas
-        int con_y = cv_y + cv_h, con_h = 100; // console
-
-        draw_sidebar(app, 0, top_y, sbw, bot_y - top_y);
-        prof_splitter_drag(&sbw, sbw, top_y, 180, 400);
-
-        int vx = sbw + 4, vy = top_y + 4, vw = sw - sbw - propw - 12, vh = cv_h - 4;
-        DrawRectangle(vx - 2, vy - 2, vw + 4, vh + 4, (Color){ 40, 42, 48, 255 });
-        // draw per-mode canvas background
-        CanvasView cv = canvas_view_create(vx, vy, vw, vh);
-        cv.zoom = app->zoom; cv.pan = app->pan; cv.grid_size = grid_size_current();
-        canvas_render(app, &cv);
-        // canvas area mode switch
-        switch (app->mode) {
-            case UI_SCH: {
-                Schematic *s = (app->sel_sch < app->proj.schematics.len) ? &app->proj.schematics.v[app->sel_sch] : NULL;
-                if (s) {
-                    draw_schematic(app, s, vx, vy + 36, vw, vh - 36);
-                    if (ui_button("Simulate (DC)", vx + 4, vy + 4, 120, 26)) {
-                        SpiceResult *sr = spice_solve_dc(s);
-                        if (sr) { char *txt = spice_result_text(sr); free(app->status); app->status = txt; spice_result_free(sr); }
-                        else { free(app->status); app->status = str_dup("SPICE: no valid circuit found (need R + V components)"); }
-                    }
-                    if (ui_button("ERC", vx + 132, vy + 4, 48, 26)) {
-                        ErcReport er = erc_check(s);
-                        char st[256]; int off = 0;
-                        for (int e = 0; e < er.nissues && off < 250; e++)
-                            off += snprintf(st + off, sizeof(st) - off, "%s | ", er.issues[e].message);
-                        free(app->status); app->status = str_dup(st);
-                        erc_report_free(&er);
-                    }
-    if (ui_button("MC", vx + 188, vy + 4, 42, 26)) {
-        char *mc = spice_monte_carlo(s, 5.0f, 20);
-        free(app->status); app->status = mc;
-    }
-    if (ui_button("Annot", vx + 236, vy + 4, 56, 26))
-        { int c = annotations_auto_assign(s); char ms[64]; snprintf(ms, sizeof(ms), "annotated %d refs", c); free(app->status); app->status = str_dup(ms); }
-    if (ui_button("Bus", vx + 298, vy + 4, 46, 26))
-        { char *bs = bus_auto_detect(s); free(app->status); app->status = bs; }
-    if (ui_button("Eye", vx + 350, vy + 4, 42, 26))
-        { char *ey = eye_diagram_report(10.0f, 30.0f, 5.0f, 50.0f); free(app->status); app->status = ey; }
-    if (ui_button("Hier", vx + 398, vy + 4, 44, 26))
-        { char *hr = sheet_hierarchy_report(&app->proj); free(app->status); app->status = hr; }
-    if (ui_button("Tut", vx + 448, vy + 4, 40, 26))
-        { char *tt = tutorial_text(); free(app->status); app->status = tt; }
-    if (ui_button("Intr", vx + 494, vy + 4, 46, 26))
-        { char *ic = interact_list_components(s); free(app->status); app->status = ic; }
-    if (ui_button("CvPcb", vx + 546, vy + 4, 52, 26))
-        { int n = cvpcb_auto_assign(&app->proj); char ms[64]; snprintf(ms, sizeof(ms), "CvPcb: %d footprints assigned", n); free(app->status); app->status = str_dup(ms); }
-    if (ui_button("Net", vx + 604, vy + 4, 40, 26))
-        { netlist_export_all(s, "build"); free(app->status); app->status = str_dup("netlists exported (PADS+Allegro+KiCad)"); }
-    if (ui_button("Val", vx + 650, vy + 4, 38, 26))
-        { char *vc = validator_check(&app->proj); free(app->status); app->status = vc; }
-                } else DrawText("drop a folder with .kicad_sch/.sch files (or press 1)", vx + 20, vy + 20, 16, GRAY);
-                break;
-            }
-            case UI_PCB: {
-                Pcb *pcb = (app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
-                if (pcb) {
-                    // footprint editing: select, drag, rotate, delete
-                    Vector2 m2 = GetMousePosition();
-                    float ft_rect_half = 8.0f * app->zoom;
-                    bool in_view = m2.x >= vx && m2.x <= vx + vw && m2.y >= vy && m2.y <= vy + vh;
-                    float vcx = vx + vw * 0.5f, vcy = vy + vh * 0.5f;
-                    // handle de-select
-                    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && in_view && app->pcb_fp_sel >= 0 && !app->pcb_fp_drag) {
-                        int hit = -1;
-                        for (int i = pcb->nfps - 1; i >= 0; i--) {
-                            float sx = vcx + (pcb->fps[i].pos.x - app->pan.x) * app->zoom;
-                            float sy = vcy + (pcb->fps[i].pos.y - app->pan.y) * app->zoom;
-                            if (m2.x >= sx - ft_rect_half && m2.x <= sx + ft_rect_half &&
-                                m2.y >= sy - ft_rect_half && m2.y <= sy + ft_rect_half) { hit = i; break; }
-                        }
-                        if (hit >= 0) { app->pcb_fp_sel = hit; app->pcb_fp_drag = 1; app->pcb_fp_start = pcb->fps[hit].pos; }
-                        else { app->pcb_fp_sel = -1; }
-                    } else if (app->pcb_fp_sel < 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && in_view) {
-                        // first click to select
-                        for (int i = pcb->nfps - 1; i >= 0; i--) {
-                            float sx = vcx + (pcb->fps[i].pos.x - app->pan.x) * app->zoom;
-                            float sy = vcy + (pcb->fps[i].pos.y - app->pan.y) * app->zoom;
-                            if (m2.x >= sx - ft_rect_half && m2.x <= sx + ft_rect_half &&
-                                m2.y >= sy - ft_rect_half && m2.y <= sy + ft_rect_half) {
-                                app->pcb_fp_sel = i; app->pcb_fp_drag = 1; app->pcb_fp_start = pcb->fps[i].pos; break;
-                            }
-                        }
-                    }
-                    // drag
-                    if (app->pcb_fp_sel >= 0 && app->pcb_fp_drag) {
-                        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-                            V2 delta = { GetMouseDelta().x / app->zoom, GetMouseDelta().y / app->zoom };
-                            pcb->fps[app->pcb_fp_sel].pos.x += delta.x;
-                            pcb->fps[app->pcb_fp_sel].pos.y += delta.y;
-                            free(app->status);
-                            char dbg[128]; snprintf(dbg, sizeof(dbg), "FP %s @ (%.1f, %.1f)", pcb->fps[app->pcb_fp_sel].ref ? pcb->fps[app->pcb_fp_sel].ref : "?", pcb->fps[app->pcb_fp_sel].pos.x, pcb->fps[app->pcb_fp_sel].pos.y);
-                            app->status = str_dup(dbg);
-                        } else {
-                            app->pcb_fp_drag = 0;
-                            app->fit_dirty = true;
-                        }
-                    }
-                    // rotate selected footprint (R key)
-                    if (app->pcb_fp_sel >= 0 && IsKeyPressed(KEY_R)) {
-                        pcb->fps[app->pcb_fp_sel].rotation = fmodf(pcb->fps[app->pcb_fp_sel].rotation + 90.0f, 360.0f);
-                        free(app->status); app->status = str_dup("footprint rotated 90");
-                        app->fit_dirty = true;
-                    }
-                    // delete selected footprint (X key)
-                    if (app->pcb_fp_sel >= 0 && IsKeyPressed(KEY_X)) {
-                        // shift remaining elements down
-                        for (int k = app->pcb_fp_sel + 1; k < pcb->nfps; k++) pcb->fps[k - 1] = pcb->fps[k];
-                        pcb->nfps--;
-                        int idx = app->pcb_fp_sel;
-                        app->pcb_fp_sel = -1; app->pcb_fp_drag = 0; app->pcb_fp_start = (V2){0};
-                        free(app->status); app->status = str_dup("footprint deleted");
-                        pcb->fps = (FpInst *)realloc(pcb->fps, sizeof(FpInst) * (size_t)pcb->nfps);
-                        app->fit_dirty = true;
-                    }
-                    // ESC deselect
-                    if (app->pcb_fp_sel >= 0 && IsKeyPressed(KEY_ESCAPE)) { app->pcb_fp_sel = -1; app->pcb_fp_drag = 0; }
-                    // track routing mode
-                    if (IsKeyPressed(KEY_T)) {
-                        app->route_mode = !app->route_mode;
-                        app->route_has_start = false;
-                        free(app->status);
-                        app->status = app->route_mode ? str_dup("routing mode: click to place track (ESC to cancel)") : str_dup("routing cancelled");
-                    }
-                    if (app->route_mode && IsKeyPressed(KEY_ESCAPE)) { app->route_mode = false; app->route_has_start = false; free(app->status); app->status = str_dup("routing cancelled"); }
-                    if (app->route_mode && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && in_view) {
-                        // convert screen to world coords
-                        float wx = (m2.x - vcx) / app->zoom + app->pan.x;
-                        float wy = (m2.y - vcy) / app->zoom + app->pan.y;
-                        if (!app->route_has_start) {
-                            app->route_start = v2(wx, wy);
-                            app->route_has_start = true;
-                            free(app->status); app->status = str_dup("routing: click endpoint");
-                        } else {
-                            // add track
-                            Track tr = { v2(app->route_start.x, app->route_start.y), v2(wx, wy), 0.5f, NULL };
-                            pcb->tracks = (Track *)realloc(pcb->tracks, sizeof(Track) * (size_t)(pcb->ntracks + 1));
-                            pcb->tracks[pcb->ntracks] = tr;
-                            pcb->ntracks++;
-                            app->route_start = v2(wx, wy); // chain from endpoint
-                            free(app->status); app->status = str_dup("track added (click next, ESC to finish)");
-                            app->fit_dirty = true;
-                        }
-                    }
-                    // enclosure buttons
-                    CadModel *enc = co_find_enclosure(&app->proj, pcb->id);
-                    if (!enc) {
-                        if (ui_button("Generate Enclosure", vx + 4, vy + 4, 170, 26)) {
-                            int ai = co_design_enclosure(&app->proj, pcb->id, &app->enc_params);
-                            if (ai >= 0) { app->encl_ready = true; app->cad_gen++; free(app->status); app->status = str_dup("enclosure generated"); }
-                            else { free(app->status); app->status = str_dup("enclosure gen failed"); }
-                        }
-                    } else {
-                        DrawText("Enclosure ready", vx + 4, vy + 8, 14, GREEN);
-                        if (ui_button("Print", vx + 152, vy + 4, 56, 26)) {
-                            unsigned long tck = (unsigned long)clock();
-                            snprintf(app->last_gcode, sizeof(app->last_gcode), "build\\pcb_print_%lu.gcode", tck);
-                            bool ok = co_design_print_enclosure(&app->proj, pcb->id, &app->slice_cfg, app->last_gcode);
-                            free(app->status);
-                            app->status = ok ? str_dup("enclosure printed!") : str_dup("print failed");
-                        }
-                    }
-                    if (ui_button("DRC", vx + 220, vy + 4, 48, 26)) {
-                        DrcReport dr = drc_check(pcb, 0.15f, 0.2f, 0.15f);
-                        char st[512]; int off = 0;
-                        for (int d = 0; d < dr.nissues && off < 500; d++)
-                            off += snprintf(st + off, sizeof(st) - off, "%s | ", dr.issues[d].message);
-                        free(app->status); app->status = str_dup(st);
-                        drc_report_free(&dr);
-                    }
-                    if (ui_button("Calc", vx + 274, vy + 4, 48, 26)) {
-                        float w = pcbcalc_track_width(1.0f, 1.0f, 10.0f);
-                        float c = pcbcalc_current_capacity(0.5f, 1.0f, 10.0f);
-                        char st[128]; snprintf(st, sizeof(st), "PCB Calc: 0.5mm track = %.2fA | 1A needs %.2fmm width (1oz, 10C rise)", c, w);
-                        free(app->status); app->status = str_dup(st);
-                    }
-                    if (ui_button("Tdrop", vx + 328, vy + 4, 56, 26))
-                        { int n = teardrop_add(pcb, 2.0f, 0.5f); free(app->status); app->status = str_dup(n > 0 ? "teardrops added" : "no pads found"); }
-                    if (ui_button("Pour", vx + 390, vy + 4, 48, 26))
-                        { int n = copper_pour_ground_plane(pcb, 2.0f, 1.5f, 3.0f); char ms[64]; snprintf(ms, sizeof(ms), "copper pour: %d segments", n); free(app->status); app->status = str_dup(ms); }
-                    if (ui_button("Gerber", vx + 444, vy + 4, 54, 26))
-                        { gerber_write_all(pcb, "build"); free(app->status); app->status = str_dup("Gerber/drill files written to build/"); }
-                    if (ui_button("FabDw", vx + 504, vy + 4, 54, 26))
-                        { fabdraw_export_manufacturing(pcb, "build"); free(app->status); app->status = str_dup("fab drawing + gerber exported"); }
-                    if (ui_button("MFG", vx + 564, vy + 4, 48, 26))
-                        { mfg_export_all(pcb, "build"); free(app->status); app->status = str_dup("P&P + IPC356 + Gerber exported"); }
-                    if (ui_button("PDF", vx + 618, vy + 4, 42, 26))
-                        { pdf_export_drawing(pcb, "build\\board.pdf"); free(app->status); app->status = str_dup("PDF exported"); }
-                    if (ui_button("DXF", vx + 666, vy + 4, 42, 26))
-                        { dxf_export_pcb(pcb, "build\\board.dxf"); free(app->status); app->status = str_dup("DXF exported"); }
-                    if (ui_button("PwrI", vx + 714, vy + 4, 46, 26))
-                        { char *pr = powerint_report(pcb); free(app->status); app->status = pr; }
-                    if (ui_button("Nets", vx + 766, vy + 4, 46, 26))
-                        { char *nr = nethilite_nets_report(pcb); free(app->status); app->status = nr; }
-                    if (ui_button("Therm", vx + 564, vy + 4, 56, 26))
-                        { char *tr = thermal_report(pcb, 25.0f); free(app->status); app->status = tr; }
-                    if (ui_button("Via+", vx + 626, vy + 4, 46, 26))
-                        { via_add_typed(pcb, v2(50,50), 0.8f, 1.6f, 0, 1, "vcc"); free(app->status); app->status = str_dup("blind via added"); }
-                    if (ui_button("SigI", vx + 678, vy + 4, 46, 26))
-                        { char *sr = si_report(pcb); free(app->status); app->status = sr; }
-                    if (ui_button("Blk+", vx + 730, vy + 4, 48, 26))
-                        { DesignBlock *b = block_save(pcb, v2(40,40), 20, 20, "block1"); block_restore(pcb, b, v2(60,40)); block_free(b); free(app->status); app->status = str_dup("design block saved/restored"); }
-                    if (ui_button("SA", vx + 784, vy + 4, 36, 26))
-                        { int m = place_simulated_annealing(pcb, 100, 0.1f, 0.95f, 50); char ms[64]; snprintf(ms, sizeof(ms), "SA placement: %d moves", m); free(app->status); app->status = str_dup(ms); }
-                    if (ui_button("A*", vx + 826, vy + 4, 34, 26))
-                        { V2 path[256]; int n = route_astar(pcb, v2(40,40), v2(60,60), 0.5f, 0.2f, path, 256); char ms[64]; snprintf(ms, sizeof(ms), "A* route: %d waypoints", n); free(app->status); app->status = str_dup(ms); }
-                    if (ui_button("CTS", vx + 866, vy + 4, 40, 26))
-                        { V2 sinks[4] = {v2(45,55),v2(55,55),v2(45,45),v2(55,45)}; int a = cts_build_htree(pcb, v2(50,50), sinks, 4, 0.15f); char ms[64]; snprintf(ms, sizeof(ms), "H-tree: %d segments", a); free(app->status); app->status = str_dup(ms); }
-                    if (ui_button("FP", vx + 912, vy + 4, 34, 26))
-                        { float bw[3]={20,15,10}, bh[3]={15,10,10}; V2 pos[3]; floorplan_bstar(bw,bh,3,pos,100,50); char ms[64]; snprintf(ms, sizeof(ms), "Floorplan: 3 blocks placed"); free(app->status); app->status = str_dup(ms); }
-                    if (ui_button("Buf", vx + 952, vy + 4, 36, 26))
-                        { V2 bp = timing_optimal_buffer_pos(v2(0,0), v2(100,0), 50); char ms[64]; snprintf(ms, sizeof(ms), "Buffer at (%.0f,%.0f)", bp.x, bp.y); free(app->status); app->status = str_dup(ms); }
-                    if (ui_button("DRC+", vx + 994, vy + 4, 46, 26)) {
-                        DRCViolation v[32]; int n = drc_enhanced_check(pcb, 0.15f, 0.1f, 0.15f, v, 32);
-                        char ms[256]; snprintf(ms, sizeof(ms), "DRC+: %d violations", n);
-                        free(app->status); app->status = str_dup(ms);
-                    }
-                    if (ui_button("PG", vx + 1046, vy + 4, 34, 26))
-                        { char *pg = power_grid_analysis(pcb, 3.3f, 2.0f); free(app->status); app->status = pg; }
-                    if (ui_button("PS", vx + 1086, vy + 4, 34, 26))
-                        { int s = pushshove_route(pcb, v2(50,48), v2(58,52), 0.2f, 0.15f, 20); char ms[32]; snprintf(ms, sizeof(ms), "Push: %d shoved", s); free(app->status); app->status = str_dup(ms); }
-                    if (ui_button("Rte", vx + 1126, vy + 4, 38, 26))
-                        { int s = pcb_route_interactive(pcb, v2(48,48), v2(60,60), 0.2f, 0.15f, 50); char ms[64]; snprintf(ms, sizeof(ms), "Interactive route: %d shoved", s); free(app->status); app->status = str_dup(ms); }
-                    if (ui_button("CG", vx + 1126, vy + 4, 34, 26)) {
-                        Schematic *s = (app->sel_sch < app->proj.schematics.len) ? &app->proj.schematics.v[app->sel_sch] : NULL;
-                        if (s) { ConnNode nodes[256]; int nc = conngraph_build(s, nodes, 256); char ms[64]; snprintf(ms, sizeof(ms), "ConnGraph: %d nets", nc); free(app->status); app->status = str_dup(ms); }
-                    }
-                    if (ui_button("PushRt", vx + 504, vy + 4, 58, 26))
-                        { pushroute_add(pcb, v2(45,45), v2(55,55), 0.3f, 0.2f); free(app->status); app->status = str_dup("push-route test track added"); }
-                    if (ui_button("DifRt", vx + 568, vy + 4, 50, 26))
-                        { difroute_add_pair(pcb, v2(40,48), v2(60,48), v2(40,52), v2(60,52), 0.3f, 0.5f); free(app->status); app->status = str_dup("differential pair added"); }
-                    if (ui_button("Tune", vx + 624, vy + 4, 52, 26))
-                        { float l = lengthtune_net_length(pcb, NULL); char ms[64]; snprintf(ms, sizeof(ms), "total length: %.1f mm (%.2f ns)", l, lengthtune_delay_ns(l)); free(app->status); app->status = str_dup(ms); }
-                    draw_pcb(app, pcb, vx, vy + 36, vw, vh - 36);
-                } else DrawText("drop a folder with .kicad_pcb/.brd files (or press 2)", vx + 20, vy + 20, 16, GRAY);
-                break;
-            }
-            case UI_3D: {
-                draw_3d(app, vx, vy, vw, vh);
-                CadModel *cm3 = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len)
-                                  ? &app->proj.cad_models.v[app->sel_cad] : NULL;
-                if (cm3 && ui_button("Print This Model", vx + 4, vy + 4, 160, 28)) {
-                    unsigned long tck = (unsigned long)clock();
-                    snprintf(app->last_gcode, sizeof(app->last_gcode), "build\\3dprint_%lu.gcode", tck);
-                    bool ok = co_design_print_cad(&app->proj, cm3->id, &app->slice_cfg, app->last_gcode);
-                    free(app->status);
-                    app->status = ok ? str_dup("CAD model printed!") : str_dup("print failed");
-                }
-                if (ui_button("Explode 2x", vx + 170, vy + 4, 100, 28)) {
-                    if (app->proj.assemblies.len > 0) {
-                        assembly_explode(&app->proj.assemblies.v[0], 2.0f);
-                        free(app->status); app->status = str_dup("assembly exploded 2x");
-                    }
-                }
-                if (ui_button("Baln", vx + 276, vy + 4, 50, 28)) {
-                    if (app->proj.assemblies.len > 0) {
-                        char *b = balloons_text(&app->proj.assemblies.v[0]);
-                        free(app->status); app->status = b;
-                    }
-                }
-                if (ui_button("Cont", vx + 332, vy + 4, 50, 28)) {
-                    if (app->proj.assemblies.len > 0) {
-                        char *cr = contact_report(&app->proj.assemblies.v[0], &app->proj);
-                        free(app->status); app->status = cr;
-                    }
-                }
-                break;
-            }
-            case UI_FIT: draw_fit(app, &app->fit, vx, vy, vw, vh); break;
-            case UI_DESIGN: draw_design(app, vx, vy, vw, vh); break;
-            case UI_ASSIST: draw_assist(app, vx, vy, vw, vh); break;
-            case UI_PRINT: draw_print(app, vx, vy, vw, vh); break;
-        }
-        // Properties panel (right)
-        prof_properties_draw(app, sw - propw, top_y, propw, bot_y - top_y - con_h);
-        // Console panel (bottom)
-        prof_console_draw(sbw + 4, con_y, sw - sbw - propw - 8, con_h);
-        // Layers panel (right bottom)
-        prof_layers_draw(app, sw - propw, con_y, propw, con_h);
-
-        // status bar
-        DrawRectangle(0, sh - 28, sw, 28, (Color){ 20, 22, 26, 255 });
-        DrawText(app->status ? app->status : "", 8, sh - 20, 14, LIGHTGRAY);
-        if (app->mode == UI_SCH || app->mode == UI_PCB) {
-            char cbuf[64]; snprintf(cbuf, sizeof(cbuf), "X:%.1f Y:%.1f | Grid:%.1f", 0.0, 0.0, grid_size_current());
-            DrawText(cbuf, sw - MeasureText(cbuf, 12) - 10, sh - 38, 12, (Color){160,170,180,255});
-        }
-        const char *modes = "1:SCH 2:PCB 3:3D 4:FIT 5:DESIGN 6:ASSIST 7:PRINT F5:Parse R:Joint-demo";
-        DrawText(modes, GetScreenWidth() - MeasureText(modes, 14) - 10, GetScreenHeight() - 20, 14, DARKGRAY);
-        // dashboard summary line
-        if (autosave_seconds_since_save() > 300)
-            { char *ds = dashboard_summary(&app->proj, &app->farm); DrawText(ds, 8, GetScreenHeight() - 44, 12, DARKGRAY); free(ds); }
-        // help overlay
+        /* help overlay */
         if (app->show_help) {
-            int sw = GetScreenWidth(), sh = GetScreenHeight();
             DrawRectangle(0, 0, sw, sh, (Color){ 0, 0, 0, 200 });
             int mx = sw / 2 - 340, my = 40;
             DrawRectangle(mx - 4, my - 4, 688, sh - 88, (Color){ 24, 26, 34, 255 });

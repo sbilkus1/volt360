@@ -211,6 +211,23 @@ void AChimeraWorld::BuildHub(UWorld* W)
 		PlaceInteractable(W, FVector(0, -1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Armory — craft legendary weapons"), EMinigameKind::COUNT, TEXT(""), FName("weapon_craft"), false);
 		PlaceInteractable(W, FVector(300, -1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Weapon Rack — equip your arsenal"), EMinigameKind::COUNT, TEXT(""), FName("weapon_equip"), false);
 		PlaceInteractable(W, FVector(600, -1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Gunsmith Bench — install weapon mods"), EMinigameKind::COUNT, TEXT(""), FName("weapon_mod"), false);
+		// Living features
+		PlaceInteractable(W, FVector(-1200, -1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Hotel Room — sleep / skip time"), EMinigameKind::COUNT, TEXT(""), FName("sleep"), false);
+		PlaceInteractable(W, FVector(0, -1800, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Nexopolis Central — train fast travel"), EMinigameKind::COUNT, TEXT(""), FName("travel_train"), false);
+		PlaceInteractable(W, FVector(-600, 1800, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("The Nexus Bar — buy drinks, karaoke"), EMinigameKind::COUNT, TEXT(""), FName("drink"), false);
+		PlaceInteractable(W, FVector(-300, 2100, 0) + FVector(0, 0, Alt), FVector(1.5f, 1.5f, 1.5f), TEXT("Karaoke Stage — sing your heart out"), EMinigameKind::COUNT, TEXT(""), FName("karaoke"), false);
+		PlaceInteractable(W, FVector(1800, 0, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("BAWSAQ Trading Terminal — stocks"), EMinigameKind::COUNT, TEXT(""), FName("stocks"), false);
+		PlaceInteractable(W, FVector(-1800, 0, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Dive Shop — scuba, submarine, underwater sites"), EMinigameKind::COUNT, TEXT(""), FName("dive"), false);
+		PlaceInteractable(W, FVector(0, 1800, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("EMS Station — paramedic / firefighter jobs"), EMinigameKind::COUNT, TEXT(""), FName("paramedic"), false);
+		PlaceInteractable(W, FVector(1800, 1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Hunting Lodge — track wildlife"), EMinigameKind::COUNT, TEXT(""), FName("hunting"), false);
+		PlaceInteractable(W, FVector(-1800, 1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Legendary Fish Board — bait and tales"), EMinigameKind::COUNT, TEXT(""), FName("legendary_fish"), false);
+		// Banking, Aircraft, TV, Education, Gym, Criminal Empire
+		PlaceInteractable(W, FVector(2000, -1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Nexopolis National Bank — deposit / loans"), EMinigameKind::COUNT, TEXT(""), FName("bank"), false);
+		PlaceInteractable(W, FVector(-2000, -1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Grand Coliseum Airport — buy aircraft"), EMinigameKind::COUNT, TEXT(""), FName("aircraft"), false);
+		PlaceInteractable(W, FVector(2000, 1200, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("TV News Studio — watch the broadcast"), EMinigameKind::COUNT, TEXT(""), FName("tv_news"), false);
+		PlaceInteractable(W, FVector(-2000, 1800, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Nexopolis University — enroll in courses"), EMinigameKind::COUNT, TEXT(""), FName("school"), false);
+		PlaceInteractable(W, FVector(1800, 1800, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Iron Nexus Gym — workout"), EMinigameKind::COUNT, TEXT(""), FName("gym"), false);
+		PlaceInteractable(W, FVector(-1800, -1800, 0) + FVector(0, 0, Alt), FVector(2, 2, 2), TEXT("Fixer's Office — criminal enterprise"), EMinigameKind::COUNT, TEXT(""), FName("criminal"), false);
 	}
 }
 
