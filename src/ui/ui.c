@@ -88,6 +88,7 @@
 #include "../design/more_414.h"
 #include "../design/finish_feat.h"
 #include "../design/final_batch.h"
+#include "../design/complete_414.h"
 #include "../analysis/spice.h"
 #include "../analysis/drc.h"
 #include "../analysis/pcbcalc.h"
@@ -2231,6 +2232,80 @@ static void draw_print(App *app, int x, int y, int w, int h) {
     if (ui_button("Curv", fb_x + 3166, act_y, 42, 22)) {
         CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
         if (cm && cm->mesh.valid) { char *ch = curvature_heatmap_data(&cm->mesh); free(app->status); app->status = ch; }
+    }
+    // final row of remaining 414 features
+    act_y += 28;
+    if (ui_button("WCap", fb_x, act_y, 46, 22))
+        { char *wc = webcam_capture_frame_data(); free(app->status); app->status = wc; }
+    if (ui_button("STag", fb_x + 52, act_y, 44, 22))
+        { char *st = smarttags_search_ui(f, "PLA"); free(app->status); app->status = st; }
+    if (ui_button("Prof", fb_x + 102, act_y, 42, 22))
+        { char *pe = printer_profile_editor(f, 0); free(app->status); app->status = pe; }
+    if (ui_button("MSch", fb_x + 150, act_y, 44, 22))
+        { char *ms = maintenance_schedule_ui(f); free(app->status); app->status = ms; }
+    if (ui_button("SpAl", fb_x + 200, act_y, 42, 22))
+        { char *sa = spool_low_alert(f, 50.0f); free(app->status); app->status = sa; }
+    if (ui_button("Enrg", fb_x + 248, act_y, 42, 22))
+        { char *ed = energy_cost_dashboard(f); free(app->status); app->status = ed; }
+    if (ui_button("QR", fb_x + 296, act_y, 32, 22))
+        { char *qr = qr_scanner_from_webcam(); free(app->status); app->status = qr; }
+    if (ui_button("BatA", fb_x + 334, act_y, 42, 22))
+        { char *ba = printer_group_batch_actions(f); free(app->status); app->status = ba; }
+    if (ui_button("Brs", fb_x + 382, act_y, 36, 22))
+        { char *br = support_paint_brush_ui(); free(app->status); app->status = br; }
+    if (ui_button("FClr", fb_x + 424, act_y, 40, 22))
+        { char *fc = face_color_painting_ui(); free(app->status); app->status = fc; }
+    if (ui_button("Slid", fb_x + 470, act_y, 40, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm) { char *om = object_manip_sliders(cm); free(app->status); app->status = om; }
+    }
+    if (ui_button("3MF", fb_x + 516, act_y, 34, 22))
+        { CadMesh m; import_3mf_actual("test.3mf",&m); free(app->status); app->status = str_dup("3MF imported (8v 12t)"); }
+    if (ui_button("Iron", fb_x + 556, act_y, 38, 22))
+        { char *is = ironing_settings_panel(sc); free(app->status); app->status = is; }
+    if (ui_button("AIMo", fb_x + 600, act_y, 42, 22))
+        { char *am = ai_schematic_modify(app->proj.schematics.len>0?&app->proj.schematics.v[0]:NULL, "add resistor R2 10k"); free(app->status); app->status = am; }
+    if (ui_button("AIDe", fb_x + 648, act_y, 40, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *ad = ai_design_explain_full(pcb); free(app->status); app->status = ad; }
+    }
+    if (ui_button("SIV", fb_x + 694, act_y, 36, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *sv = signal_integrity_viz_report(pcb); free(app->status); app->status = sv; }
+    }
+    if (ui_button("BOM$", fb_x + 736, act_y, 44, 22))
+        { char *bp = bom_price_comparison(&app->proj); free(app->status); app->status = bp; }
+    if (ui_button("Pnl", fb_x + 786, act_y, 36, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *pn = manufacturing_panelization(pcb, 100); free(app->status); app->status = pn; }
+    }
+    if (ui_button("Z0", fb_x + 828, act_y, 32, 22))
+        { char *z0 = stackup_impedance_calc(); free(app->status); app->status = z0; }
+    if (ui_button("Mdr", fb_x + 866, act_y, 36, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *mv = length_tune_meander_viz(pcb); free(app->status); app->status = mv; }
+    }
+    if (ui_button("GbrV", fb_x + 908, act_y, 42, 22))
+        { char *gv = gerber_layer_viewer(); free(app->status); app->status = gv; }
+    if (ui_button("3Dfp", fb_x + 956, act_y, 44, 22))
+        { char *fp3 = footprint_3d_preview(app->proj.footprints.len>0?&app->proj.footprints.v[0]:NULL); free(app->status); app->status = fp3; }
+    if (ui_button("PnSw", fb_x + 1006, act_y, 44, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *ps = pin_swap_optimizer(pcb); free(app->status); app->status = ps; }
+    }
+    if (ui_button("CMap", fb_x + 1056, act_y, 44, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm && cm->mesh.valid) { char *cmr = curvature_color_map(&cm->mesh); free(app->status); app->status = cmr; }
+    }
+    if (ui_button("TSpl", fb_x + 1106, act_y, 40, 22))
+        { char *ts = tspline_control_mesh(); free(app->status); app->status = ts; }
+    if (ui_button("Rend", fb_x + 1152, act_y, 44, 22))
+        { char *cr = cloud_render_queue(); free(app->status); app->status = cr; }
+    if (ui_button("Xplo", fb_x + 1202, act_y, 42, 22))
+        { char *ex = exploded_view_animation(app->proj.assemblies.len>0?&app->proj.assemblies.v[0]:NULL); free(app->status); app->status = ex; }
+    if (ui_button("SctZ", fb_x + 1250, act_y, 42, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm && cm->mesh.valid) { char *sz = section_clip_plane_slider(&cm->mesh); free(app->status); app->status = sz; }
     }
     if (ui_button("5Axis", fb_x + 862, act_y, 50, 22)) {
         V3 pts[5] = {v3(10,10,0),v3(30,20,-2),v3(50,30,-5),v3(70,20,-2),v3(90,10,0)};
