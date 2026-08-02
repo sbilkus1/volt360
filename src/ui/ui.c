@@ -84,6 +84,7 @@
 #include "../design/advance_feat.h"
 #include "../design/v2_features.h"
 #include "../design/finish_414.h"
+#include "../design/final_feat.h"
 #include "../analysis/spice.h"
 #include "../analysis/drc.h"
 #include "../analysis/pcbcalc.h"
@@ -2109,6 +2110,29 @@ static void draw_print(App *app, int x, int y, int w, int h) {
         Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
         if (pcb) { char *mo = manufacturing_optimize(pcb, 10); free(app->status); app->status = mo; }
     }
+    if (ui_button("Meas", fb_x + 1358, act_y, 46, 22))
+        { MeasurePoint a={0,0},b={30,40}; char *mr = measure_report(a,b); free(app->status); app->status = mr; }
+    if (ui_button("XPrb", fb_x + 1410, act_y, 46, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        const char *ref = pcb && pcb->nfps>0 && pcb->fps[0].ref ? pcb->fps[0].ref : "R1";
+        char *xp = crossprobe_highlight(&app->proj, ref); free(app->status); app->status = xp;
+    }
+    if (ui_button("Splt", fb_x + 1462, act_y, 42, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm && cm->mesh.valid) { int n = object_split_into_project(&app->proj, &cm->mesh); char ms[32]; snprintf(ms,sizeof(ms),"Split into %d parts",n); free(app->status); app->status = str_dup(ms); app->cad_gen++; cache_clear(); }
+    }
+    if (ui_button("Maint", fb_x + 1510, act_y, 48, 22))
+        { maint_log_event(f,"Voron 2.4","lubricate Z rods",142.0f); char *mh = maint_history_report(f); free(app->status); app->status = mh; }
+    if (ui_button("FW", fb_x + 1564, act_y, 34, 22))
+        { char *fw = firmware_update_status("Voron 2.4","klipper-v0.12"); free(app->status); app->status = fw; }
+    if (ui_button("Stk", fb_x + 1604, act_y, 40, 22))
+        { char *stk = stackup_default_4layer(); free(app->status); app->status = stk; }
+    if (ui_button("AI", fb_x + 1650, act_y, 32, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *ae = ai_explain_design(pcb); free(app->status); app->status = ae; }
+    }
+    if (ui_button("T-S", fb_x + 1688, act_y, 36, 22))
+        { char *ts = tspline_stub(); free(app->status); app->status = ts; }
     if (ui_button("5Axis", fb_x + 862, act_y, 50, 22)) {
         V3 pts[5] = {v3(10,10,0),v3(30,20,-2),v3(50,30,-5),v3(70,20,-2),v3(90,10,0)};
         V3 nrms[5] = {v3(0,0,1),v3(0,0,1),v3(0,0,1),v3(0,0,1),v3(0,0,1)};

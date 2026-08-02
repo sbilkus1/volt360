@@ -11,7 +11,9 @@
 #include "Core/ChimeraVehicles.h"
 #include "Core/ChimeraVehicleSpawns.h"
 #include "Core/ChimeraDungeons.h"
+#include "Core/ChimeraJustice.h"
 #include "Core/ChimeraArc.h"
+#include "Core/ChimeraJustice.h"
 #include "Core/ChimeraQuests.h"
 #include "Minigames/ChimeraMinigames.h"
 #include "Character/ChimeraCharacter.h"
@@ -643,7 +645,11 @@ void AChimeraInteractable::OnInteract(AChimeraCharacter* C)
 				{
 					FVehicleDef V = Cats[FMath::RandRange(0, Cats.Num() - 1)];
 					if (VS->StealVehicle(V.Id))
-						Message = FString::Printf(TEXT("You hotwire a %s %s. It's in your garage now. WATCH OUT — you're wanted."), *V.Make, *V.Model);
+					{
+						Message = FString::Printf(TEXT("You hotwire a %s %s. WANTED. Press H to surrender at the station."), *V.Make, *V.Model);
+						// Connect to justice system
+						if (auto* JS = GetGameInstance()->GetSubsystem<UJusticeSystem>()) JS->GetState().WantedStars = Sess->WantedLevel;
+					}
 				}
 			}
 		}
@@ -667,6 +673,39 @@ void AChimeraInteractable::OnInteract(AChimeraCharacter* C)
 				}
 				else Message = FString::Printf(TEXT("The Convergence is not ready. You are in %s. %s"), *Arc->GetChapterName(), *Arc->GetChapterObjective());
 			}
+		}
+		else if (StatKey == FName("surrender"))
+		{
+			UJusticeSystem* JS = GetGameInstance()->GetSubsystem<UJusticeSystem>();
+			if (JS && Sess->WantedLevel > 0) { JS->Surrender(); Message = TEXT("Hands up. Cuffs on. You're under arrest."); }
+			else Message = TEXT("No wanted stars. Walk free.");
+		}
+		else if (StatKey == FName("visit_court"))
+		{
+			UJusticeSystem* JS = GetGameInstance()->GetSubsystem<UJusticeSystem>();
+			if (JS && JS->GetState().Phase == ECourtPhase::AwaitingTrial) { JS->GoToCourt(); Message = JS->GetVerdict(); }
+			else if (JS && JS->GetState().Phase == ECourtPhase::Booked) Message = FString::Printf(TEXT("Trial in %d days."), JS->GetState().DaysUntilTrial);
+			else Message = TEXT("No pending court date.");
+		}
+		else if (StatKey == FName("bail"))
+		{
+			UJusticeSystem* JS = GetGameInstance()->GetSubsystem<UJusticeSystem>();
+			if (JS) { if (JS->PostBail()) Message = TEXT("Bail posted. Out until trial."); else Message = FString::Printf(TEXT("Bail: %d credits."), JS->GetState().BailAmount); }
+		}
+		else if (StatKey == FName("prison_job"))
+		{
+			UJusticeSystem* JS = GetGameInstance()->GetSubsystem<UJusticeSystem>();
+			if (JS && JS->IsInPrison()) { JS->AssignJob(EPrisonJob::Kitchen); JS->WorkShift(); Message = TEXT("Prison work shift complete."); }
+		}
+		else if (StatKey == FName("escape"))
+		{
+			UJusticeSystem* JS = GetGameInstance()->GetSubsystem<UJusticeSystem>();
+			if (JS && JS->IsInPrison()) { JS->PlanEscape(EEscapeMethod::Tunnel); JS->WorkOnEscape(); JS->AttemptEscape(); Message = JS->GetState().Phase == ECourtPhase::Escaped ? TEXT("ESCAPED! Fugitive.") : TEXT("Escape in progress."); }
+		}
+		else if (StatKey == FName("riot"))
+		{
+			UJusticeSystem* JS = GetGameInstance()->GetSubsystem<UJusticeSystem>();
+			if (JS && JS->IsInPrison()) { JS->FomentRiot(); if (JS->CheckForRiot()) Message = JS->RiotOutcome(); else Message = TEXT("Tensions simmer."); }
 		}
 		else if (StatKey == FName("property"))
 		{

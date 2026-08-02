@@ -274,6 +274,16 @@ void AChimeraWorld::BuildZone(UWorld* W, const FRingDef& Ring)
 			EMinigameKind::COUNT, TEXT(""), FName("evidence"), false);
 		PlaceInteractable(W, A + FVector(800, 1700, 0), FVector(2, 2, 2), TEXT("Arrest warrant office — make an arrest"),
 			EMinigameKind::COUNT, TEXT(""), FName("arrest"), false);
+		// GDD 6.7 — Criminal justice system.
+		PlaceInteractable(W, A + FVector(-800, 1700, 0), FVector(2, 2, 2), TEXT("Courtroom — stand trial"),
+			EMinigameKind::COUNT, TEXT(""), FName("visit_court"), false);
+		PlaceInteractable(W, A + FVector(-400, 1700, 0), FVector(2, 2, 2), TEXT("Bail bondsman — post bail"),
+			EMinigameKind::COUNT, TEXT(""), FName("bail"), false);
+		PlaceInteractable(W, A + FVector(-1200, 1700, 0), FVector(2, 2, 2), TEXT("Holding cell — surrender to police"),
+			EMinigameKind::COUNT, TEXT(""), FName("surrender"), false);
+		// Prison interactables (accesible when sentenced)
+		PlaceInteractable(W, A + FVector(-1200, 1900, 0), FVector(2, 2, 2), TEXT("Prison yard — work detail / plan escape / stir up riot"),
+			EMinigameKind::COUNT, TEXT(""), FName("prison_job"), false);
 		PlaceInteractable(W, A + FVector(-400, 1700, 0), FVector(2, 2, 2), TEXT("Police Box — TARDIS patrol mode (activate lights)"),
 			EMinigameKind::COUNT, TEXT(""), FName("tardis_police"), false);
 		// GDD 13.10 — pickpocketing spot.
