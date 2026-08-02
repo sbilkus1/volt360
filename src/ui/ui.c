@@ -87,6 +87,7 @@
 #include "../design/final_feat.h"
 #include "../design/more_414.h"
 #include "../design/finish_feat.h"
+#include "../design/final_batch.h"
 #include "../analysis/spice.h"
 #include "../analysis/drc.h"
 #include "../analysis/pcbcalc.h"
@@ -2190,6 +2191,46 @@ static void draw_print(App *app, int x, int y, int w, int h) {
     if (ui_button("NC", fb_x + 2512, act_y, 32, 22)) {
         Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
         if (pcb) { char *nl = netclass_list_report(pcb); free(app->status); app->status = nl; }
+    }
+    if (ui_button("Brg", fb_x + 2550, act_y, 36, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm && cm->mesh.valid) { SliceResult sr;memset(&sr,0,sizeof(sr));if(slice_mesh(&cm->mesh,sc,&sr)){char *bd=bridge_detect_report(&sr);free(app->status);app->status=bd;slice_result_free(&sr);} }
+    }
+    if (ui_button("OViz", fb_x + 2592, act_y, 42, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm && cm->mesh.valid) { char *ov = overhang_viz_report(&cm->mesh, 45); free(app->status); app->status = ov; }
+    }
+    if (ui_button("NCDi", fb_x + 2640, act_y, 44, 22))
+        { char *nc = netclass_dialog_text(); free(app->status); app->status = nc; }
+    if (ui_button("FPW", fb_x + 2690, act_y, 40, 22))
+        { char *fw = footprint_wizard_dialog(); free(app->status); app->status = fw; }
+    if (ui_button("CuV", fb_x + 2736, act_y, 36, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *cv = copper_pour_viz_report(pcb); free(app->status); app->status = cv; }
+    }
+    if (ui_button("Pass", fb_x + 2778, act_y, 40, 22))
+        { char *pc = passive_consolidation(&app->proj); free(app->status); app->status = pc; }
+    if (ui_button("Pins", fb_x + 2824, act_y, 38, 22))
+        { char *pl = pin_listing_full(&app->proj); free(app->status); app->status = pl; }
+    if (ui_button("Cam+", fb_x + 2868, act_y, 44, 22))
+        { char *wl = webcam_live_preview(); free(app->status); app->status = wl; }
+    if (ui_button("DT", fb_x + 2918, act_y, 32, 22))
+        { char *dt = downtime_report_detailed(f); free(app->status); app->status = dt; }
+    if (ui_button("SPt", fb_x + 2956, act_y, 36, 22))
+        { char *sp = support_paint_ui_status(); free(app->status); app->status = sp; }
+    if (ui_button("FPt", fb_x + 2998, act_y, 36, 22))
+        { char *fp = face_paint_ui_status(); free(app->status); app->status = fp; }
+    if (ui_button("Col", fb_x + 3040, act_y, 36, 22))
+        { char *cp = color_paint_format_presets(); free(app->status); app->status = cp; }
+    if (ui_button("3mf", fb_x + 3082, act_y, 36, 22))
+        { char *m3 = import_3mf_status("model.3mf"); free(app->status); app->status = m3; }
+    if (ui_button("AIL", fb_x + 3124, act_y, 36, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *al = ai_autolayout_estimate(pcb); free(app->status); app->status = al; }
+    }
+    if (ui_button("Curv", fb_x + 3166, act_y, 42, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm && cm->mesh.valid) { char *ch = curvature_heatmap_data(&cm->mesh); free(app->status); app->status = ch; }
     }
     if (ui_button("5Axis", fb_x + 862, act_y, 50, 22)) {
         V3 pts[5] = {v3(10,10,0),v3(30,20,-2),v3(50,30,-5),v3(70,20,-2),v3(90,10,0)};
