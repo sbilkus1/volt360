@@ -192,6 +192,8 @@ void AChimeraWorld::BuildHub(UWorld* W)
 			TEXT("Barn Find Map — locate hidden legendary vehicles"), EMinigameKind::COUNT, TEXT(""), FName("barn_find"), false);
 		AChimeraInteractable* AIDiff = PlaceInteractable(W, FVector(0, -2500, 0) + FVector(0, 0, Alt), FVector(2, 2, 2),
 			TEXT("AI Difficulty Terminal — configure NPC intelligence"), EMinigameKind::COUNT, TEXT(""), FName("ai_difficulty"), false);
+		AChimeraInteractable* Tutorial = PlaceInteractable(W, FVector(-600, -600, 0) + FVector(0, 0, Alt), FVector(2, 2, 2),
+			TEXT("Keeper's Guide — new player tips"), EMinigameKind::COUNT, TEXT(""), FName("tutorial"), false);
 	}
 }
 

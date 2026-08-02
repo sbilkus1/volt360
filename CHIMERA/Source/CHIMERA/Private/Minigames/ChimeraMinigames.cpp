@@ -1,6 +1,7 @@
 #include "Minigames/ChimeraMinigames.h"
 #include "Character/ChimeraCharacter.h"
 #include "Core/ChimeraSessionSubsystem.h"
+#include "Core/ChimeraStory.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "CHIMERA.h"
@@ -1629,8 +1630,9 @@ void UCharacterCreationFlow::Begin(AChimeraCharacter* C)
 		TEXT("Being wrong"), TEXT("Death of a loved one"), TEXT("Public humiliation"), TEXT("Losing your mind") };
 	ChosenFears.Reset();
 	Points = 15; Cursor = 0; FearCursor = 0;
-	Phase = EPhase_LifePath;
-	Status = TEXT("Phase 1/6: Choose life path. W/S navigate, A=random, Space=confirm.");
+	Phase = EPhase_Story; StoryLine = 0;
+	StoryText = ChimeraStory::GetOpeningNarrative();
+	Status = TEXT("Press Space to continue the story...");
 }
 
 void UCharacterCreationFlow::Draw(UCanvas* Canvas, float W, float H)

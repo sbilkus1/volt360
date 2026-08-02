@@ -112,7 +112,7 @@ void UChimeraSessionSubsystem::GenerateNews()
 	TArray<FString> Pool = {
 		TEXT("Nexopolis City News: hyperloop ridership at an all-time high."),
 		TEXT("Mid-Wilshire PD unveils new predictive-policing unit."),
-		TEXT("Mercy Heights announces 'Mystery Illness Week' - volunteers needed."),
+		TEXT("Mercy Heights announces 'Mystery Illness Week' — volunteers needed."),
 		TEXT("Grand Coliseum to host cross-sport exhibition: F1 drivers vs footballers."),
 		TEXT("Aether City reports a sudden surge in drag-race tourism."),
 		TEXT("Alagaesia: dragon sightings confirmed near the Keeper's tower."),
@@ -271,6 +271,20 @@ void UChimeraSessionSubsystem::RecordEvent(const FString& What)
 	EventLog.Insert(What, 0);
 	if (EventLog.Num() > 64) EventLog.Pop();
 	UE_LOG(LogChimera, Log, TEXT("[Chronicle] %s"), *What);
+
+	// GDD 14.18 — Major events generate player-driven news headlines.
+	if (What.Contains(TEXT("Heist complete")) || What.Contains(TEXT("Bounty collected")) ||
+		What.Contains(TEXT("Crafted:")) || What.Contains(TEXT("Hunger Games victor")) ||
+		What.Contains(TEXT("Rebellion")))
+	{
+		AddPlayerHeadline(What);
+	}
+}
+
+void UChimeraSessionSubsystem::AddPlayerHeadline(const FString& Headline)
+{
+	PlayerHeadlines.Insert(Headline, 0);
+	if (PlayerHeadlines.Num() > 30) PlayerHeadlines.SetNum(30);
 }
 
 void UChimeraSessionSubsystem::AddStat(FName Key, int32 Amt)

@@ -81,6 +81,7 @@ void AChimeraCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	Make(IA_Ranged, EInputActionValueType::Boolean, { EKeys::R });
 	Make(IA_Dragon, EInputActionValueType::Boolean, { EKeys::X });       // GDD 6.9 mount/unmount flight
 	Make(IA_Takedown, EInputActionValueType::Boolean, { EKeys::Q });      // GDD 6.2 non-lethal takedown
+	Make(IA_Camera, EInputActionValueType::Boolean, { EKeys::V });        // cycle camera views
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
@@ -104,6 +105,7 @@ void AChimeraCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		EIC->BindAction(IA_Ranged, ETriggerEvent::Triggered, this, &AChimeraCharacter::RangedAttack);
 		EIC->BindAction(IA_Dragon, ETriggerEvent::Triggered, this, &AChimeraCharacter::ToggleDragonFlight);
 		EIC->BindAction(IA_Takedown, ETriggerEvent::Triggered, this, &AChimeraCharacter::StealthTakedown);
+		EIC->BindAction(IA_Camera, ETriggerEvent::Triggered, this, &AChimeraCharacter::CycleCamera);
 	}
 }
 
@@ -130,6 +132,14 @@ void AChimeraCharacter::Tick(float DeltaTime)
 	else if (GetCharacterMovement()->MovementMode == MOVE_Flying)
 	{
 		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	}
+
+	// Camera orbit: cinematic rotates around player, drone uses look input
+	if (CurrentCamera == ECameraMode::Cinematic)
+	{
+		static float OrbitAngle = 0.f;
+		OrbitAngle += DeltaTime * 15.f;
+		if (SpringArm) SpringArm->SetWorldRotation(FRotator(-15.f, OrbitAngle, 0.f));
 	}
 
 	// GDD 3.1 - find nearest interactable each scan interval.
@@ -244,6 +254,93 @@ void AChimeraCharacter::ToggleDragonFlight()
 		? FString::Printf(TEXT("%s launches into the sky. You ride as one. (X to land)"), *Session->GetDragonName())
 		: TEXT("You dismount. The dragon folds its wings."));
 	Session->BondWithDragon(2);
+}
+
+void AChimeraCharacter::CycleCamera()
+{
+	CurrentCamera = (ECameraMode)(((int32)CurrentCamera + 1) % (int32)ECameraMode::COUNT);
+	ApplyCameraMode(CurrentCamera);
+}
+
+void AChimeraCharacter::ApplyCameraMode(ECameraMode Mode)
+{
+	if (!SpringArm || !Camera) return;
+
+	switch (Mode)
+	{
+	case ECameraMode::ThirdPerson:
+		SpringArm->TargetArmLength = 600.f;
+		SpringArm->SetRelativeLocation(FVector(0, 0, 60));
+		SpringArm->bUsePawnControlRotation = true;
+		Camera->SetFieldOfView(90.f);
+		bUseControllerRotationYaw = false;
+		GetCharacterMovement()->bOrientRotationToMovement = true;
+		if (Session) Session->ShowMessage(TEXT("Camera: Third Person — standard view"));
+		break;
+
+	case ECameraMode::ThirdPersonClose:
+		SpringArm->TargetArmLength = 180.f;
+		SpringArm->SetRelativeLocation(FVector(50, 0, 70));
+		SpringArm->bUsePawnControlRotation = true;
+		Camera->SetFieldOfView(85.f);
+		bUseControllerRotationYaw = false;
+		GetCharacterMovement()->bOrientRotationToMovement = true;
+		if (Session) Session->ShowMessage(TEXT("Camera: Close — over-shoulder action view"));
+		break;
+
+	case ECameraMode::ThirdPersonFar:
+		SpringArm->TargetArmLength = 1500.f;
+		SpringArm->SetRelativeLocation(FVector(0, 0, 200));
+		SpringArm->bUsePawnControlRotation = true;
+		Camera->SetFieldOfView(70.f);
+		bUseControllerRotationYaw = false;
+		GetCharacterMovement()->bOrientRotationToMovement = true;
+		if (Session) Session->ShowMessage(TEXT("Camera: Far — wide cinematic view"));
+		break;
+
+	case ECameraMode::FirstPerson:
+		SpringArm->TargetArmLength = 0.f;
+		SpringArm->SetRelativeLocation(FVector(0, 0, 70)); // eye height
+		SpringArm->bUsePawnControlRotation = true;
+		Camera->SetFieldOfView(100.f);
+		bUseControllerRotationYaw = true; // controller rotation matches look direction
+		GetCharacterMovement()->bOrientRotationToMovement = false;
+		if (Session) Session->ShowMessage(TEXT("Camera: First Person — immersive FPS"));
+		break;
+
+	case ECameraMode::TopDown:
+		SpringArm->TargetArmLength = 900.f;
+		SpringArm->SetRelativeLocation(FVector(0, 0, 2000)); // high above
+		SpringArm->SetRelativeRotation(FRotator(-80, 0, 0));  // look down
+		SpringArm->bUsePawnControlRotation = false;
+		Camera->SetFieldOfView(70.f);
+		bUseControllerRotationYaw = false;
+		GetCharacterMovement()->bOrientRotationToMovement = true;
+		if (Session) Session->ShowMessage(TEXT("Camera: Top Down — strategy overhead view"));
+		break;
+
+	case ECameraMode::DroneView:
+		SpringArm->TargetArmLength = 2000.f;
+		SpringArm->SetRelativeLocation(FVector(500, 500, 500));
+		SpringArm->bUsePawnControlRotation = false;
+		Camera->SetFieldOfView(90.f);
+		bUseControllerRotationYaw = false;
+		GetCharacterMovement()->bOrientRotationToMovement = false;
+		if (Session) Session->ShowMessage(TEXT("Camera: Drone — free-look detached view. Mouse orbits freely."));
+		break;
+
+	case ECameraMode::Cinematic:
+		SpringArm->TargetArmLength = 1200.f;
+		SpringArm->SetRelativeLocation(FVector(0, 0, 150));
+		SpringArm->bUsePawnControlRotation = false;
+		Camera->SetFieldOfView(60.f);
+		bUseControllerRotationYaw = false;
+		GetCharacterMovement()->bOrientRotationToMovement = true;
+		if (Session) Session->ShowMessage(TEXT("Camera: Cinematic — slow auto-orbit. Sit back and watch."));
+		break;
+
+	default: break;
+	}
 }
 
 void AChimeraCharacter::DealRangedDamage()

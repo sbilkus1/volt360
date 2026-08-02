@@ -162,6 +162,14 @@ void AChimeraHUD::DrawMainHUD(float W, float H)
 		FVector2D(20, H - 24), FVector2D(0.9f, 0.9f), FLinearColor(0.6f, 0.6f, 0.6f));
 	}
 
+	// Camera mode indicator
+	if (AChimeraCharacter* C = Cast<AChimeraCharacter>(GetOwningPawn()))
+	{
+		const TCHAR* CamNames[] = { TEXT("3rd Person"), TEXT("Over-Shoulder"), TEXT("Wide"), TEXT("FPS"), TEXT("Top Down"), TEXT("Drone"), TEXT("Cinematic") };
+		Canvas->DrawText(F, FString::Printf(TEXT("[V] %s"), CamNames[(int32)C->CurrentCamera]),
+			FVector2D(W / 2 - 50, 24), FVector2D(0.9f, 0.9f), FLinearColor(0.5f, 0.8f, 0.5f));
+	}
+
 	// GDD 14.11 - festival banner.
 	if (Sess->bFestivalActive)
 	{

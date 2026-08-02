@@ -12,6 +12,20 @@ class AChimeraInteractable;
 class UChimeraSessionSubsystem;
 class UChimeraMinigame;
 
+// Camera view modes
+UENUM(BlueprintType)
+enum class ECameraMode : uint8
+{
+	ThirdPerson,      // standard GTA-style, default
+	ThirdPersonClose, // tight over-shoulder (Gears of War)
+	ThirdPersonFar,   // wide cinematic pull-back
+	FirstPerson,      // FPS — camera at eye level
+	TopDown,          // overhead strategy view
+	DroneView,        // free-look detached camera
+	Cinematic,        // slow auto-orbit around player
+	COUNT
+};
+
 UCLASS()
 class CHIMERA_API AChimeraCharacter : public ACharacter
 {
@@ -45,6 +59,11 @@ public:
 
 	// GDD 6.2 - non-lethal stealth takedown vs Focus.
 	void StealthTakedown();
+
+	// --- Camera modes ---
+	void CycleCamera();                // V key — cycle through 7 views
+	ECameraMode CurrentCamera = ECameraMode::ThirdPerson;
+	void ApplyCameraMode(ECameraMode Mode);
 
 	// --- input state ---
 	bool bSprint = false;
@@ -86,4 +105,5 @@ private:
 	class UInputAction* IA_Ranged;
 	class UInputAction* IA_Dragon;
 	class UInputAction* IA_Takedown;
+	class UInputAction* IA_Camera;
 };

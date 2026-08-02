@@ -145,9 +145,15 @@ public:
 	// GDD 14.11 - seasonal festival effects. Buffs last while active.
 	float FestivalXPBonus = 1.f;
 
-	// GDD 14.18 / 9.x - News ticker. Headlines react to world events.
+	// GDD 14.18 / 9.x - News ticker. Headlines react to world events + player actions.
 	const TArray<FString>& GetNews() const { return News; }
 	FString GetLatestHeadline() const { return News.Num() > 0 ? News[0] : TEXT("Nexopolis City News: reality remains stable."); }
+	void AddPlayerHeadline(const FString& Headline);
+
+	// GDD 1 — Tutorial system. Track what the player has been shown.
+	UPROPERTY() TSet<FString> TutorialsShown;
+	bool ShouldShowTutorial(const FString& Id) const { return !TutorialsShown.Contains(Id); }
+	void MarkTutorialShown(const FString& Id) { TutorialsShown.Add(Id); }
 
 	// GDD 3.5 - Save/Load. JSON slots in <ProjectSaved>/SaveGames/<Slot>.json.
 	bool SaveGame(const FString& Slot);
@@ -163,6 +169,7 @@ public:
 	FString Weather = TEXT("Clear");
 	FString Season = TEXT("Spring");
 	TArray<FString> News;     // GDD 14.18
+	TArray<FString> PlayerHeadlines; // GDD 14.18 — headlines about player actions
 
 	// GDD 14.8 - fame/infamy/generosity axes.
 	int32 Fame = 0;

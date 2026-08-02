@@ -464,7 +464,7 @@ public:
 	virtual void HandleKey(const FKey& Key) override;
 
 private:
-	enum { EPhase_LifePath, EPhase_Gender, EPhase_Orientation, EPhase_Fears, EPhase_Attributes, EPhase_Review };
+	enum { EPhase_Story, EPhase_LifePath, EPhase_Gender, EPhase_Orientation, EPhase_Fears, EPhase_Attributes, EPhase_Review };
 	int32 Phase = EPhase_LifePath;
 	int32 Cursor = 0;
 	int32 Points = 15;
@@ -474,6 +474,9 @@ private:
 	TArray<FString> OrientationOptions;
 	TArray<FString> FearOptions;
 	TArray<FString> ChosenFears;
+	// Story intro
+	int32 StoryLine = 0;
+	TArray<FString> StoryText;
 };
 
 // Factory.

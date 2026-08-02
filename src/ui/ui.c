@@ -82,6 +82,7 @@
 #include "../core/cloudsave.h"
 #include "../core/autoupdate.h"
 #include "../design/advance_feat.h"
+#include "../design/v2_features.h"
 #include "../analysis/spice.h"
 #include "../analysis/drc.h"
 #include "../analysis/pcbcalc.h"
@@ -2080,6 +2081,14 @@ static void draw_print(App *app, int x, int y, int w, int h) {
         PBRMaterial mat; pbr_material_preset(&mat, "copper");
         HDREnvironment env; hdr_environment_preset(&env, "studio");
         char *rr = pbr_render_report(NULL, &mat, &env); free(app->status); app->status = rr;
+    }
+    if (ui_button("Cam", fb_x + 862, act_y, 42, 22))
+        { char *ws = webcam_status_text(); free(app->status); app->status = ws; }
+    if (ui_button("RFID", fb_x + 910, act_y, 44, 22))
+        { char *rs = rfid_simulate_scan(); free(app->status); app->status = rs; }
+    if (ui_button("Paint", fb_x + 960, act_y, 50, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm && cm->mesh.valid) { int tris[64]; int n = paint_support_region(&cm->mesh, v2(0,0), 20, 1, (V2){0,0}, tris, 64); char *pr = paint_region_report(n, "support"); free(app->status); app->status = pr; }
     }
     if (ui_button("5Axis", fb_x + 862, act_y, 50, 22)) {
         V3 pts[5] = {v3(10,10,0),v3(30,20,-2),v3(50,30,-5),v3(70,20,-2),v3(90,10,0)};

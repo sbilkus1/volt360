@@ -588,6 +588,34 @@ void AChimeraInteractable::OnInteract(AChimeraCharacter* C)
 			Sess->SetAIDifficulty(Next);
 			Message = FString::Printf(TEXT("AI Difficulty: %s"), *StaticEnum<EAIDifficulty>()->GetNameStringByValue((int64)Next));
 		}
+		else if (StatKey == FName("tutorial"))
+		{
+			static const TCHAR* Tips[] = {
+				TEXT("E to interact, F to melee, R to shoot, C for stealth."),
+				TEXT("Walk into a ring gate to fast-travel. Or drive across the continent."),
+				TEXT("Visit the dealership to buy cars. Dark alleys to steal them (wanted level!)."),
+				TEXT("Perform surgery at any hospital ER. Grey-Sloan, Gaffney, Chastain Park."),
+				TEXT("Open cases at the police case board. Collect evidence, interview, arrest."),
+				TEXT("The dragon egg is in Alagaesia. Bond with it. Feed RawMeat. Fly at bond 20."),
+				TEXT("Craft potions at Neo-Kingdom. Forge weapons at the Alagaesia dwarven forge."),
+				TEXT("Enchant gear at the enchanting table. Magic duels in the chamber."),
+				TEXT("Gamble at Afterlife Casino: Texas Hold'em, Blackjack, Roulette, Slots."),
+				TEXT("Start a Hunger Games at the Panem control room. Sponsor tributes."),
+				TEXT("Ignite the grand rebellion from the War Room. All rings choose sides."),
+				TEXT("Buy property at the Base Terminal. Hire staff. Earn passive income."),
+				TEXT("Dungeons are at every corner of the continent. How deep can you go?"),
+				TEXT("The TARDIS is in the Nexus. Choose your Doctor. Customise your sonic."),
+				TEXT("Choose your hero/villain blueprint. Craft Iron Man suits. Wield Mjolnir."),
+				TEXT("Dating spots at Costa Coffee, Nexus gazebo, Mid-Wilshire bistro."),
+			};
+			int32 Pick = FMath::RandRange(0, 15);
+			if (Sess->ShouldShowTutorial(FString::Printf(TEXT("tip_%d"), Pick)))
+			{
+				Sess->MarkTutorialShown(FString::Printf(TEXT("tip_%d"), Pick));
+				Message = Tips[Pick];
+			}
+			else Message = TEXT("You've seen all the tips. Explore and discover the rest yourself.");
+		}
 		else if (StatKey == FName("dungeon"))
 		{
 			UDungeonSubsystem* DS = GetGameInstance()->GetSubsystem<UDungeonSubsystem>();
