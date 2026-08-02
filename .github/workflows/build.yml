@@ -19,18 +19,14 @@ jobs:
         with:
           arch: x64
 
-      - name: Download dependencies (raylib + miniz)
+      - name: Clone dependencies
         shell: cmd
         run: |
-          mkdir third_party 2>nul
-          :: Download raylib source
-          curl -L -o raylib.zip https://github.com/raysan5/raylib/archive/refs/tags/5.5.zip
-          tar -xf raylib.zip
-          move raylib-5.5 third_party\raylib
-          :: Download miniz
-          curl -L -o miniz.zip https://github.com/richgel999/miniz/archive/refs/heads/master.zip
-          tar -xf miniz.zip
-          move miniz-master third_party\miniz
+          mkdir third_party
+          :: raylib 5.5
+          git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git third_party\raylib
+          :: miniz
+          git clone --depth 1 https://github.com/richgel999/miniz.git third_party\miniz
 
       - name: Build, Test, App
         shell: cmd
