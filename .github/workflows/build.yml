@@ -66,7 +66,9 @@ jobs:
           link /nologo /OUT:test_import.exe tt.obj *.obj raylib.lib %LIBS% || exit /b 1
 
           echo [build] running tests...
-          test_import.exe || exit /b 1
+          :: run from project root so examples/ is found
+          cd /d %ROOT%
+          build\test_import.exe || exit /b 1
 
           echo [build] compiling app...
           cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\src\main.c" /Fomain.obj || exit /b 1
