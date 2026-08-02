@@ -1,0 +1,61 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build
+        shell: cmd
+        run: build.bat test
+
+      - name: Run tests
+        shell: cmd
+        run: |
+          build\test_import.exe
+          if %ERRORLEVEL% NEQ 0 exit /b 1
+
+      - name: Build GUI app
+        shell: cmd
+        run: build.bat
+
+      - name: Generate website
+        shell: cmd
+        run: build\app.exe --website
+
+      - name: Upload artifacts (release)
+        if: github.event_name == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: volt360-windows-x64
+          path: |
+            build\app.exe
+            build\test_import.exe
+            build\raylib.lib
+            README.md
+            AGENTS.md
+            website\index.html
+            website\account.html
+            website\revisions.html
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build\app.exe
+            build\test_import.exe
