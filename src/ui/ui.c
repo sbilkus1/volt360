@@ -85,6 +85,7 @@
 #include "../design/v2_features.h"
 #include "../design/finish_414.h"
 #include "../design/final_feat.h"
+#include "../design/more_414.h"
 #include "../analysis/spice.h"
 #include "../analysis/drc.h"
 #include "../analysis/pcbcalc.h"
@@ -2133,6 +2134,32 @@ static void draw_print(App *app, int x, int y, int w, int h) {
     }
     if (ui_button("T-S", fb_x + 1688, act_y, 36, 22))
         { char *ts = tspline_stub(); free(app->status); app->status = ts; }
+    if (ui_button("SclX", fb_x + 1730, act_y, 44, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm) { object_scale(cm, 1.5f, 1.0f, 1.0f); app->cad_gen++; cache_clear(); free(app->status); app->status = str_dup("scaled X 1.5x"); }
+    }
+    if (ui_button("Rot", fb_x + 1780, act_y, 38, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm) { object_rotate(cm, 0, 0, 45); app->cad_gen++; cache_clear(); free(app->status); app->status = str_dup("rotated 45deg Z"); }
+    }
+    if (ui_button("Ovr", fb_x + 1824, act_y, 36, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm && cm->mesh.valid) { SliceResult sr;memset(&sr,0,sizeof(sr));if(slice_mesh(&cm->mesh,sc,&sr)){char *ov=overhang_report(&sr);free(app->status);app->status=ov;slice_result_free(&sr);} }
+    }
+    if (ui_button("Buy", fb_x + 1866, act_y, 38, 22))
+        { PurchaseForecast fcs[8]; int n=purchase_forecast_run(f,fcs,8); char *pr=purchase_forecast_report(fcs,n); free(app->status); app->status=pr; }
+    if (ui_button("Tag", fb_x + 1910, act_y, 36, 22))
+        { char *tl = smarttags_list(f); free(app->status); app->status = tl; }
+    if (ui_button("Blk", fb_x + 1952, act_y, 36, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *bl = designblock_save_region(pcb, v2(40,40), 20, 20, "blk1"); free(app->status); app->status = bl; }
+    }
+    if (ui_button("FpWiz", fb_x + 1994, act_y, 52, 22))
+        { Footprint *fp = footprint_wizard_smd(&app->proj, "SMD-8", 8, 1.27f, 1.5f, 0.8f); char *fr = footprint_wizard_report(fp); free(app->status); app->status = fr; }
+    if (ui_button("DPR", fb_x + 2052, act_y, 38, 22))
+        { DiffPairRules dr = difpair_rules_get(); char *drr = difpair_rules_report(dr); free(app->status); app->status = drr; }
+    if (ui_button("Iron", fb_x + 2096, act_y, 42, 22))
+        { char *ir = ironing_adaptive_settings(NULL, sc); free(app->status); app->status = ir; }
     if (ui_button("5Axis", fb_x + 862, act_y, 50, 22)) {
         V3 pts[5] = {v3(10,10,0),v3(30,20,-2),v3(50,30,-5),v3(70,20,-2),v3(90,10,0)};
         V3 nrms[5] = {v3(0,0,1),v3(0,0,1),v3(0,0,1),v3(0,0,1),v3(0,0,1)};
