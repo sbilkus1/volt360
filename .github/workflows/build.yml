@@ -19,48 +19,59 @@ jobs:
         with:
           arch: x64
 
+      - name: Download dependencies (raylib + miniz)
+        shell: cmd
+        run: |
+          mkdir third_party 2>nul
+          :: Download raylib source
+          curl -L -o raylib.zip https://github.com/raysan5/raylib/archive/refs/tags/5.5.zip
+          tar -xf raylib.zip
+          move raylib-5.5 third_party\raylib
+          :: Download miniz
+          curl -L -o miniz.zip https://github.com/richgel999/miniz/archive/refs/heads/master.zip
+          tar -xf miniz.zip
+          move miniz-master third_party\miniz
+
       - name: Build, Test, App
         shell: cmd
         run: |
-          mkdir build 2>nul
-          cd build
-          set ROOT=%CD%\..
-          set BUILD=%CD%
-          cd /d %ROOT%
+          set ROOT=%CD%
+          set BUILD=%ROOT%\build
           set RL=%ROOT%\third_party\raylib\src
           set SRCDIR=%ROOT%\src
           set MINIZDIR=%ROOT%\third_party\miniz
           set CFLAGS=/nologo /O2 /W3 /wd4996 /wd4100 /wd4189 /utf-8 /DPLATFORM_DESKTOP /DGRAPHICS_API_OPENGL_33 /D_CRT_SECURE_NO_WARNINGS
           set LIBS=user32.lib gdi32.lib shell32.lib winmm.lib opengl32.lib ole32.lib comdlg32.lib uuid.lib advapi32.lib winhttp.lib
 
+          mkdir build 2>nul
           cd %BUILD%
+
           echo [build] compiling raylib...
-          cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /c "%RL%\rcore.c" "%RL%\rshapes.c" "%RL%\rtextures.c" "%RL%\rtext.c" "%RL%\rmodels.c" "%RL%\raudio.c" "%RL%\utils.c" "%RL%\rglfw.c"
-          lib /nologo /out:raylib.lib rcore.obj rshapes.obj rtextures.obj rtext.obj rmodels.obj raudio.obj utils.obj rglfw.obj
+          cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /c "%RL%\rcore.c" "%RL%\rshapes.c" "%RL%\rtextures.c" "%RL%\rtext.c" "%RL%\rmodels.c" "%RL%\raudio.c" "%RL%\utils.c" "%RL%\rglfw.c" || exit /b 1
+          lib /nologo /out:raylib.lib rcore.obj rshapes.obj rtextures.obj rtext.obj rmodels.obj raudio.obj utils.obj rglfw.obj || exit /b 1
 
           echo [build] compiling core...
           for /r "%SRCDIR%" %%f in (*.c) do (
             if /i not "%%~nf"=="main" if /i not "%%~nf"=="test_import" (
-              cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%%f" /Fo"%%~nf.obj"
+              cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%%f" /Fo"%%~nf.obj" || exit /b 1
             )
           )
-          cl %CFLAGS% /I"%MINIZDIR%" /c "%MINIZDIR%\miniz.c" /Fominiz.obj
-          cl %CFLAGS% /I"%MINIZDIR%" /c "%MINIZDIR%\miniz_tdef.c" /Fominiz_tdef.obj
-          cl %CFLAGS% /I"%MINIZDIR%" /c "%MINIZDIR%\miniz_tinfl.c" /Fominiz_tinfl.obj
-          cl %CFLAGS% /I"%MINIZDIR%" /c "%MINIZDIR%\miniz_zip.c" /Fominiz_zip.obj
+          cl %CFLAGS% /I"%MINIZDIR%" /c "%MINIZDIR%\miniz.c" /Fominiz.obj || exit /b 1
+          cl %CFLAGS% /I"%MINIZDIR%" /c "%MINIZDIR%\miniz_tdef.c" /Fominiz_tdef.obj || exit /b 1
+          cl %CFLAGS% /I"%MINIZDIR%" /c "%MINIZDIR%\miniz_tinfl.c" /Fominiz_tinfl.obj || exit /b 1
+          cl %CFLAGS% /I"%MINIZDIR%" /c "%MINIZDIR%\miniz_zip.c" /Fominiz_zip.obj || exit /b 1
 
-          echo [build] compiling test_import...
-          cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\tests\test_import.c" /Fotest_import.obj
-          link /nologo /OUT:test_import.exe test_import.obj *.obj raylib.lib %LIBS%
+          echo [build] compiling test...
+          cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\tests\test_import.c" /Fotest_import.obj || exit /b 1
+          link /nologo /OUT:test_import.exe test_import.obj *.obj raylib.lib %LIBS% || exit /b 1
 
           echo [build] running tests...
-          test_import.exe
-          if %ERRORLEVEL% NEQ 0 exit /b 1
+          test_import.exe || exit /b 1
 
           echo [build] compiling app...
-          cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\src\main.c" /Fomain.obj
-          link /nologo /OUT:app.exe main.obj *.obj raylib.lib %LIBS%
-          echo [build] BUILD OK
+          cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\src\main.c" /Fomain.obj || exit /b 1
+          link /nologo /OUT:app.exe main.obj *.obj raylib.lib %LIBS% || exit /b 1
+          echo BUILD OK
 
       - name: Upload (release)
         if: github.event_name == 'release'
