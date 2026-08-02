@@ -28,6 +28,7 @@ jobs:
       - name: Build, Test, App
         shell: cmd
         run: |
+          setlocal enabledelayedexpansion
           set ROOT=%CD%
           set BUILD=%ROOT%\build
           set RL=%ROOT%\third_party\raylib\src
@@ -60,7 +61,10 @@ jobs:
 
           echo [build] compiling test...
           cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\tests\test_import.c" /Fotest_import.obj || exit /b 1
-          link /nologo /OUT:test_import.exe test_import.obj *.obj raylib.lib %LIBS% || exit /b 1
+          :: collect all .obj files except test_import.obj
+          set OBJS=
+          for %%g in (*.obj) do if /i not "%%g"=="test_import.obj" set OBJS=!OBJS! %%g
+          link /nologo /OUT:test_import.exe test_import.obj %OBJS% raylib.lib %LIBS% || exit /b 1
 
           echo [build] running tests...
           test_import.exe || exit /b 1
