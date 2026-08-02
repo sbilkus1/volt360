@@ -71,6 +71,7 @@ jobs:
           build\test_import.exe || exit /b 1
 
           echo [build] compiling app...
+          cd /d %BUILD%
           cl %CFLAGS% /I"%RL%" /I"%RL%\external\glfw\include" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\src\main.c" /Fomain.obj || exit /b 1
           link /nologo /OUT:app.exe main.obj *.obj raylib.lib %LIBS% || exit /b 1
           echo BUILD OK
