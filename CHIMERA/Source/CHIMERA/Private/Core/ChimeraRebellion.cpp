@@ -1,5 +1,6 @@
 #include "Core/ChimeraRebellion.h"
 #include "Core/ChimeraSessionSubsystem.h"
+#include "Core/ChimeraArc.h"
 #include "Core/ChimeraHungerGames.h"
 #include "Engine/GameInstance.h"
 #include "CHIMERA.h"
@@ -112,6 +113,7 @@ bool URebellionSubsystem::RebelAction(const FString& Skill, const FString& Descr
 			Phase = ERebelPhase::Victory;
 			Sess->ShowMessage(TEXT("THE MOCKINGJAY WINS. Snow is executed. The Divergent live free. The dragons soar over a liberated Panem."));
 			Sess->RecordEvent(TEXT("Grand rebellion victorious. The Mockingjay flies. CHIMERA is free."));
+			if (auto* Arc = GetGameInstance()->GetSubsystem<UStoryArcSubsystem>()) Arc->CompleteMission(TEXT("rebellion_won"));
 		}
 		return true;
 	}

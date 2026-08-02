@@ -1,6 +1,7 @@
 #include "Character/ChimeraCharacter.h"
 #include "Core/ChimeraSessionSubsystem.h"
 #include "Core/ChimeraRecords.h"
+#include "Core/ChimeraArc.h"
 #include "Core/ChimeraQuests.h"
 #include "Core/ChimeraEconomy.h"
 #include "Core/ChimeraWorldSim.h"
@@ -393,6 +394,13 @@ void AChimeraCharacter::FinishCharacterCreation(const FString& LifePath)
 	else { Session->AddSkillXP(TEXT("Med_Diagnosis"), 60); Session->AddRep(EFaction::MedicalBoard, 10); }
 
 	Session->RecordEvent(FString::Printf(TEXT("The Crash. You wake in the Nexus as a %s. Reality is fracturing."), *LifePath));
+
+	// Register in character roster (GTA V style — you are slot 0)
+	if (auto* Arc = GetGameInstance()->GetSubsystem<UStoryArcSubsystem>())
+	{
+		Arc->CreateMainCharacter(LifePath, LifePath);
+		Arc->CompleteMission(TEXT("character_created"));
+	}
 
 	// GDD 12.2 - M1: First Contact auto-starts.
 	if (auto* Q = GetGameInstance()->GetSubsystem<UQuestSystem>()) Q->StartQuest(TEXT("Q_A1_Contact"));

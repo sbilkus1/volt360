@@ -1,5 +1,6 @@
 #include "Core/ChimeraBounties.h"
 #include "Core/ChimeraSessionSubsystem.h"
+#include "Core/ChimeraArc.h"
 #include "Core/ChimeraEconomy.h"
 #include "Engine/GameInstance.h"
 #include "CHIMERA.h"
@@ -116,6 +117,7 @@ int32 UBountySubsystem::CompleteAcceptedBounty(bool bAlive)
 			bAlive ? TEXT("alive") : TEXT("dead"), Reward));
 		Sess->AddStat(TEXT("bounty_done"), 1);
 		Sess->ShowMessage(FString::Printf(TEXT("Bounty complete: %s. +%d credits."), *B.TargetName, Reward));
+		if (auto* Arc = GetGameInstance()->GetSubsystem<UStoryArcSubsystem>()) Arc->CompleteMission(TEXT("bounty_complete"));
 		int32 Idx = AcceptedIndex;
 		AcceptedIndex = -1;
 		return Reward;

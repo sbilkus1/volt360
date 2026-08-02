@@ -1,5 +1,6 @@
 #include "Player/ChimeraPlayerController.h"
 #include "Core/ChimeraSessionSubsystem.h"
+#include "Core/ChimeraArc.h"
 #include "Core/ChimeraEconomy.h"
 #include "Minigames/ChimeraMinigames.h"
 #include "Character/ChimeraCharacter.h"
@@ -116,7 +117,17 @@ void AChimeraPlayerController::HandleMenuInput()
 		TogglePause();
 		SetPause(bShowPause);
 	}
-	// GDD 3.5 - quick save/load.
+	// GDD 3.5 — GTA V-style character swap (L key).
+	if (WasInputKeyJustPressed(EKeys::L))
+	{
+		UStoryArcSubsystem* Arc = GetGameInstance()->GetSubsystem<UStoryArcSubsystem>();
+		if (Arc && Arc->GetRoster().Num() > 1)
+		{
+			int32 Next = (Arc->GetActiveSlot() + 1) % Arc->GetRoster().Num();
+			Arc->SwitchCharacter(Next);
+		}
+	}
+	// GDD 3.5 — quick save/load.
 	if (WasInputKeyJustPressed(EKeys::F5))
 	{
 		UChimeraSessionSubsystem* Sess = GetGameInstance()->GetSubsystem<UChimeraSessionSubsystem>();

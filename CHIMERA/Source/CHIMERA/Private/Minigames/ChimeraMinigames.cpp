@@ -1640,8 +1640,20 @@ void UCharacterCreationFlow::Draw(UCanvas* Canvas, float W, float H)
 	UFont* F = GEngine->GetSmallFont();
 	Canvas->DrawText(F, Title, FVector2D(40, 20), FVector2D(2.2f, 2.2f), FLinearColor::Cyan);
 	float Y = 70;
-	const TCHAR* PhaseNames[] = { TEXT("Life Path"), TEXT("Gender"), TEXT("Orientation"), TEXT("Fears"), TEXT("Attributes"), TEXT("Review") };
-	Canvas->DrawText(F, FString::Printf(TEXT("Step %d/6: %s"), Phase + 1, PhaseNames[Phase]), FVector2D(40, 55), FVector2D(1.0f, 1.0f), FLinearColor::Yellow);
+	const TCHAR* PhaseNames[] = { TEXT("The Story"), TEXT("Life Path"), TEXT("Gender"), TEXT("Orientation"), TEXT("Fears"), TEXT("Attributes"), TEXT("Review") };
+	Canvas->DrawText(F, FString::Printf(TEXT("Step %d/7: %s"), Phase + 1, PhaseNames[Phase]), FVector2D(40, 55), FVector2D(1.0f, 1.0f), FLinearColor::Yellow);
+
+	if (Phase == EPhase_Story)
+	{
+		for (int32 i = FMath::Max(0, StoryLine - 5); i <= StoryLine && i < StoryText.Num(); ++i)
+		{
+			FLinearColor Col = (i == StoryLine) ? FLinearColor::White : FLinearColor(0.3f, 0.3f, 0.3f);
+			Canvas->DrawText(F, *StoryText[i], FVector2D(W / 2 - 380, Y), FVector2D(1.2f, 1.2f), Col);
+			Y += 20;
+		}
+		Canvas->DrawText(F, TEXT("Space to continue. Esc to skip to character creation."), FVector2D(40, H - 60), FVector2D(1.0f, 1.0f), FLinearColor(0.6f, 0.6f, 0.6f));
+		return;
+	}
 
 	if (Phase == EPhase_LifePath)
 	{
@@ -1714,12 +1726,22 @@ void UCharacterCreationFlow::Draw(UCanvas* Canvas, float W, float H)
 void UCharacterCreationFlow::HandleKey(const FKey& Key)
 {
 	if (bComplete) return;
+	if (Phase == EPhase_Story)
+	{
+		if (Key == EKeys::SpaceBar || Key == EKeys::Enter)
+		{
+			StoryLine++;
+			if (StoryLine >= StoryText.Num()) { Phase = EPhase_LifePath; Cursor = 0; Status = TEXT("Phase 2/7: Choose your life path. W/S navigate, A=random, Space=confirm."); }
+		}
+		else if (Key == EKeys::Escape) { Phase = EPhase_LifePath; Cursor = 0; Status = TEXT("Phase 2/7: Choose your life path. W/S navigate, A=random, Space=confirm."); }
+		return;
+	}
 	if (Phase == EPhase_LifePath)
 	{
 		if (Key == EKeys::W || Key == EKeys::Up) { Cursor = (Cursor + LifePaths.Num() - 1) % LifePaths.Num(); }
 		else if (Key == EKeys::S || Key == EKeys::Down) { Cursor = (Cursor + 1) % LifePaths.Num(); }
 		else if (Key == EKeys::A) { Cursor = FMath::RandRange(0, LifePaths.Num() - 1); } // random
-		else if (Key == EKeys::SpaceBar || Key == EKeys::Enter) { Phase = EPhase_Gender; Cursor = 0; Status = TEXT("Phase 2/6: Choose your gender identity."); }
+		else if (Key == EKeys::SpaceBar || Key == EKeys::Enter) { Phase = EPhase_Gender; Cursor = 0; Status = TEXT("Phase 3/7: Choose your gender identity."); }
 	}
 	else if (Phase == EPhase_Gender)
 	{
@@ -1728,7 +1750,7 @@ void UCharacterCreationFlow::HandleKey(const FKey& Key)
 		else if (Key == EKeys::SpaceBar || Key == EKeys::Enter)
 		{
 			if (Char && Char->GetSession()) Char->GetSession()->SetGender((EGender)Cursor);
-			Phase = EPhase_Orientation; Cursor = 0; Status = TEXT("Phase 3/6: Choose your orientation.");
+			Phase = EPhase_Orientation; Cursor = 0; Status = TEXT("Phase 4/7: Choose your orientation.");
 		}
 	}
 	else if (Phase == EPhase_Orientation)
@@ -1738,7 +1760,7 @@ void UCharacterCreationFlow::HandleKey(const FKey& Key)
 		else if (Key == EKeys::SpaceBar || Key == EKeys::Enter)
 		{
 			if (Char && Char->GetSession()) Char->GetSession()->SetOrientation((EOrientation)Cursor);
-			Phase = EPhase_Fears; Cursor = 0; Status = TEXT("Phase 4/6: Choose 3 fears. Space to select, Enter when done.");
+			Phase = EPhase_Fears; Cursor = 0; Status = TEXT("Phase 5/7: Choose 3 fears. Space to select, Enter when done.");
 		}
 	}
 	else if (Phase == EPhase_Fears)
@@ -1758,7 +1780,7 @@ void UCharacterCreationFlow::HandleKey(const FKey& Key)
 				Char->GetSession()->PlayerFears = ChosenFears;
 				Char->GetSession()->RecordEvent(FString::Printf(TEXT("Fears chosen: %s, %s, %s"), *ChosenFears[0], *ChosenFears[1], *ChosenFears[2]));
 			}
-			Phase = EPhase_Attributes; Cursor = 0; Status = TEXT("Phase 5/6: Distribute attribute points (W/S select, A/D adjust, Space to finish).");
+			Phase = EPhase_Attributes; Cursor = 0; Status = TEXT("Phase 6/7: Distribute attribute points (W/S select, A/D adjust, Space to finish).");
 		}
 	}
 	else if (Phase == EPhase_Attributes)
@@ -1767,7 +1789,7 @@ void UCharacterCreationFlow::HandleKey(const FKey& Key)
 		else if (Key == EKeys::S || Key == EKeys::Down) { Cursor = (Cursor + 1) % 7; }
 		else if (Key == EKeys::A || Key == EKeys::Left) { if (Char && Points > 0) { Char->AddAttribute((EAttribute)Cursor, -1); Points++; } }
 		else if (Key == EKeys::D || Key == EKeys::Right) { if (Char && Points > 0 && Char->GetAttribute((EAttribute)Cursor) < 100) { Char->AddAttribute((EAttribute)Cursor, 1); Points--; } }
-		else if (Key == EKeys::SpaceBar || Key == EKeys::Enter) { Phase = EPhase_Review; Status = TEXT("Phase 6/6: Review and finalise. Space to confirm, Esc to restart."); }
+		else if (Key == EKeys::SpaceBar || Key == EKeys::Enter) { Phase = EPhase_Review; Status = TEXT("Phase 7/7: Review and finalise. Space to confirm, Esc to restart."); }
 	}
 	else if (Phase == EPhase_Review)
 	{

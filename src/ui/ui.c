@@ -83,6 +83,7 @@
 #include "../core/autoupdate.h"
 #include "../design/advance_feat.h"
 #include "../design/v2_features.h"
+#include "../design/finish_414.h"
 #include "../analysis/spice.h"
 #include "../analysis/drc.h"
 #include "../analysis/pcbcalc.h"
@@ -2089,6 +2090,24 @@ static void draw_print(App *app, int x, int y, int w, int h) {
     if (ui_button("Paint", fb_x + 960, act_y, 50, 22)) {
         CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
         if (cm && cm->mesh.valid) { int tris[64]; int n = paint_support_region(&cm->mesh, v2(0,0), 20, 1, (V2){0,0}, tris, 64); char *pr = paint_region_report(n, "support"); free(app->status); app->status = pr; }
+    }
+    if (ui_button("Face", fb_x + 1016, act_y, 44, 22)) {
+        CadModel *cm = (app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) ? &app->proj.cad_models.v[app->sel_cad] : NULL;
+        if (cm && cm->mesh.valid) { int tris[64]; int n = paint_visible_tris(&cm->mesh, v3(0,0,1), tris, 64); char ms[32]; snprintf(ms,sizeof(ms),"%d faces visible",n); free(app->status); app->status = str_dup(ms); }
+    }
+    if (ui_button("Cost", fb_x + 1066, act_y, 44, 22))
+        { char *cr = cost_report(f); free(app->status); app->status = cr; }
+    if (ui_button("Grp", fb_x + 1116, act_y, 36, 22))
+        { int idx[3]={0,1,2}; farm_group_create(f,"Main",idx,3); char *gr = farm_group_report(f,g_groups,g_ng>0?g_ng:1); free(app->status); app->status = gr; }
+    if (ui_button("BusB", fb_x + 1158, act_y, 44, 22))
+        { const char *sigs[4]={"D0","D1","D2","D3"}; Schematic *s=app->proj.schematics.len>0?&app->proj.schematics.v[0]:NULL; if(s){bus_create_with_signals(s,"DATA",sigs,4);free(app->status);app->status=str_dup("bus DATA[0:3] created");}}
+    if (ui_button("GDT", fb_x + 1208, act_y, 38, 22))
+        { char *gd=gdt_feature_frame("Boss",25.0f,0.1f,0.05f,"A"); free(app->status); app->status = gd; }
+    if (ui_button("BOpt", fb_x + 1252, act_y, 46, 22))
+        { char *bo = bom_optimize(&app->proj); free(app->status); app->status = bo; }
+    if (ui_button("MFG+", fb_x + 1304, act_y, 48, 22)) {
+        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+        if (pcb) { char *mo = manufacturing_optimize(pcb, 10); free(app->status); app->status = mo; }
     }
     if (ui_button("5Axis", fb_x + 862, act_y, 50, 22)) {
         V3 pts[5] = {v3(10,10,0),v3(30,20,-2),v3(50,30,-5),v3(70,20,-2),v3(90,10,0)};

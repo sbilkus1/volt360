@@ -11,6 +11,7 @@
 #include "Core/ChimeraVehicles.h"
 #include "Core/ChimeraVehicleSpawns.h"
 #include "Core/ChimeraDungeons.h"
+#include "Core/ChimeraArc.h"
 #include "Core/ChimeraQuests.h"
 #include "Minigames/ChimeraMinigames.h"
 #include "Character/ChimeraCharacter.h"
@@ -644,6 +645,27 @@ void AChimeraInteractable::OnInteract(AChimeraCharacter* C)
 					if (VS->StealVehicle(V.Id))
 						Message = FString::Printf(TEXT("You hotwire a %s %s. It's in your garage now. WATCH OUT — you're wanted."), *V.Make, *V.Model);
 				}
+			}
+		}
+		else if (StatKey == FName("finale"))
+		{
+			UStoryArcSubsystem* Arc = GetGameInstance()->GetSubsystem<UStoryArcSubsystem>();
+			if (Arc)
+			{
+				if (Arc->GetChapter() >= EStoryChapter::Finale_Choice)
+				{
+					static int32 EndIdx = 0;
+					EndIdx = (EndIdx + 1) % 4;
+					EFinalChoice Choice = (EFinalChoice)EndIdx;
+					Arc->SetEnding(Choice);
+					const TCHAR* EndTexts[] = {
+						TEXT("SEPARATION: You restore the barriers. Each world returns to its own reality. The memories remain. The connections fade. But you know what you saved."),
+						TEXT("INTEGRATION: You merge the worlds permanently. Nexopolis becomes the new normal. Dragons in the ER. Surgeons with magic. The impossible is now everyday. Everyone remembers. Everyone is changed."),
+						TEXT("TRANSCENDENCE: You ascend. You become a Keeper. From the Nexus Tower, you watch over every ring, every soul. You are the bridge between realities. Eternal. Watching. Guiding."),
+						TEXT("CONTROL: You seize the Nexus. The Convergence bows to you. You are the immortal god-king of Nexopolis. Every ring answers to your will. Power. Absolute. Forever.") };
+					Message = EndTexts[EndIdx];
+				}
+				else Message = FString::Printf(TEXT("The Convergence is not ready. You are in %s. %s"), *Arc->GetChapterName(), *Arc->GetChapterObjective());
 			}
 		}
 		else if (StatKey == FName("property"))

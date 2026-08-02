@@ -1,5 +1,6 @@
 #include "Core/ChimeraHeists.h"
 #include "Core/ChimeraSessionSubsystem.h"
+#include "Core/ChimeraArc.h"
 #include "Engine/GameInstance.h"
 #include "CHIMERA.h"
 
@@ -100,6 +101,7 @@ void UHeistSubsystem::AdvancePhase()
 				*ActiveHeist.Title, Payout));
 			Sess->ShowMessage(FString::Printf(TEXT("HEIST COMPLETE: %s! +%d credits (after crew cuts)"),
 				*ActiveHeist.Title, Payout));
+			if (auto* Arc = GetGameInstance()->GetSubsystem<UStoryArcSubsystem>()) Arc->CompleteMission(TEXT("heist_complete"));
 		}
 	}
 }

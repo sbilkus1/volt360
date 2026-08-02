@@ -2,6 +2,7 @@
 #include "Player/ChimeraPlayerController.h"
 #include "Core/ChimeraSessionSubsystem.h"
 #include "Core/ChimeraRecords.h"
+#include "Core/ChimeraArc.h"
 #include "Core/ChimeraEconomy.h"
 #include "Core/ChimeraWorldSim.h"
 #include "Core/ChimeraQuests.h"
@@ -65,6 +66,23 @@ void AChimeraHUD::DrawMainHUD(float W, float H)
 		Money += FString::Printf(TEXT("%s: %d   "), *CurNames[i], Sess->GetCurrency((ECurrency)i));
 	}
 	Canvas->DrawText(F, Money, FVector2D(20, 64), FVector2D(1.1f, 1.1f), FLinearColor::Yellow);
+
+	// GDD 8 — story chapter + character roster.
+	if (auto* Arc = GetGameInstance()->GetSubsystem<UStoryArcSubsystem>())
+	{
+		Canvas->DrawText(F, FString::Printf(TEXT("%s — %s"), *Arc->GetChapterName(), *Arc->GetChapterObjective()),
+			FVector2D(W / 2 - 400, 16), FVector2D(0.85f, 0.85f),
+			Arc->HasFinishedStory() ? FLinearColor(0.5f, 1.f, 0.5f) : FLinearColor(1.f, 0.9f, 0.5f));
+
+		// Character roster: show all unlocked characters
+		FString RostText = TEXT("[L] Roster: ");
+		for (int32 i = 0; i < Arc->GetRoster().Num(); ++i)
+		{
+			RostText += (i == Arc->GetActiveSlot()) ? FString::Printf(TEXT("[%s] "), *Arc->GetRoster()[i].Name) : FString::Printf(TEXT("%s "), *Arc->GetRoster()[i].Name);
+		}
+		if (Arc->GetRoster().Num() == 1) RostText += TEXT(" (more unlock as you progress)");
+		Canvas->DrawText(F, RostText, FVector2D(W / 2 - 350, 36), FVector2D(0.85f, 0.85f), FLinearColor(0.7f, 0.9f, 1.f));
+	}
 
 	// GDD 4.5 - wanted stars.
 	FString Wanted;

@@ -1,5 +1,6 @@
 #include "Core/ChimeraHungerGames.h"
 #include "Core/ChimeraSessionSubsystem.h"
+#include "Core/ChimeraArc.h"
 #include "Engine/GameInstance.h"
 #include "CHIMERA.h"
 
@@ -180,6 +181,7 @@ void UHungerGamesSubsystem::CrownVictor()
 	{
 		Sess->ShowMessage(FString::Printf(TEXT("VICTOR CROWNED: %s wins the Hunger Games!"), *VictorName));
 		Sess->RecordEvent(FString::Printf(TEXT("Hunger Games victor: %s (Games #%d)"), *VictorName, TotalGamesPlayed));
+		if (auto* Arc = GetGameInstance()->GetSubsystem<UStoryArcSubsystem>()) Arc->CompleteMission(TEXT("hunger_games_won"));
 	}
 }
 
