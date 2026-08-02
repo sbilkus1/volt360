@@ -80,6 +80,7 @@
 #include "../import/kicad_lib.h"
 #include "../slicer/fusion_lib.h"
 #include "../core/cloudsave.h"
+#include "../core/autoupdate.h"
 #include "../design/advance_feat.h"
 #include "../analysis/spice.h"
 #include "../analysis/drc.h"
@@ -278,7 +279,13 @@ static void ui_extract_docs(App *app) {
 // ================= run =================
 void app_frame(App *app) {
     float dt = GetFrameTime();
-    autosave_tick(&app->proj); // periodic autosave
+    autosave_tick(&app->proj);
+    // check for updates once at startup
+    static int update_checked = 0;
+    if (!update_checked) { update_checked = 1;
+        char *up = autoupdate_run("sbilkus1", "volt360");
+        prof_console_write(up); free(up);
+    }
     Vector2 mouse = GetMousePosition();
         // mouse drag to pan canvas views
         if (IsMouseButtonDown(MOUSE_BUTTON_MIDDLE) && app->mode != UI_3D) {

@@ -127,7 +127,7 @@ bool website_generate(const char *output_dir) {
 
         "<div class=section id=download><h2>Download</h2>"
         "<div class=downloads>"
-        "<a href=https://github.com/user/Volt360/releases/latest/download/Volt360-windows-x64.exe class=btn>Windows x64 Installer</a>"
+        "<a href=https://github.com/sbilkus1/volt360/releases/latest/download/volt360-windows-x64.exe class=btn>Windows x64 Installer</a>"
         "<a href=https://github.com/user/Volt360/releases/latest/download/Volt360-linux.AppImage class=btn>Linux AppImage</a>"
         "<a href=https://github.com/user/Volt360/releases/latest/download/Volt360-macos.dmg class=btn>macOS DMG</a>"
         "</div>"
