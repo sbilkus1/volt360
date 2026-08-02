@@ -1,0 +1,7 @@
+Part,Manufacturer,Description,Package,Height_mm,Pitch_mm
+LM358,TI,Op amp,SOIC-8,1.75,1.27
+ATMEGA328P,Microchip,8-bit MCU,TQFP-32,1.0,0.8
+7805,ST,Voltage regulator,TO-220,4.6,2.54
+0603,Generic,SMD resistor,0603,0.55,0.8
+0805,Generic,SMD capacitor,0805,0.7,1.5
+ESP32-S3,Espressif,WiFi MCU,QFN-56,1.2,0.35

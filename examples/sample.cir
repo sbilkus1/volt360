@@ -1,0 +1,6 @@
+* llama-cad-eda sample SPICE netlist
+R1 N001 N002 10k
+C1 N002 0 100n
+U1 N001 N002 N003 0 LM358
+V1 N001 0 DC 5
+R2 N003 0 1k

@@ -1,0 +1,35 @@
+(kicad_symbol_lib
+  (symbol "Device:R"
+    (pin_names (offset 1.016))
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "R"
+      (at 0 2.54 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Value" "R"
+      (at 0 -2.54 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (symbol "R_0_1"
+      (rectangle
+        (start -1.016 -1.524)
+        (end 1.016 1.524)
+        (stroke (width 0.254) (type default))
+        (fill (type none))
+      )
+      (pin "passive"
+        (at 0 3.81 270)
+        (length 2.794)
+        (name "1") (number "1")
+        (effects (font (size 1.27 1.27)))
+      )
+      (pin "passive"
+        (at 0 -3.81 90)
+        (length 2.794)
+        (name "2") (number "2")
+        (effects (font (size 1.27 1.27)))
+      )
+    )
+  )
+)

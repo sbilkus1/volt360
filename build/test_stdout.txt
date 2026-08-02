@@ -1,0 +1,28 @@
+== importing examples/ ==
+  symbols=2 footprints=1 components=0 cad=1 schematics=3 pcbs=1 docs=2
+[PASS] dir import ok Scanned examples
+[PASS] kicad symbol imported Device:R
+[PASS] kicad footprint imported R_0603_1608Metric
+[PASS] schematic imported (>=1) sample.kicad_sch
+[PASS] pcb imported (>=1) sample.kicad_pcb
+[FAIL] cad models (>=2: stl+obj) sample.stl + sample.obj
+[PASS] netlist schematic (>=3) sample.net + sample.cir
+[PASS] docs (>=2: md+csv) sample.md + sample.csv
+  schematic[0]=netlist insts=5 wires=0 labels=5
+  pcb[0]=sample outline=4 fps=1 tracks=2 vias=1
+[PASS] pcb outline closed (>=4) board rect
+[PASS] pcb has 1 fp + 2 tracks + 1 via R1
+
+== building zip in memory ==
+[PASS] zip writer init C:\Users\realc\AppData\Local\Temp\llama_test_76425875.zip
+[PASS] zip written C:\Users\realc\AppData\Local\Temp\llama_test_76425875.zip
+[PASS] zip import ok Imported 0 file(s) from zip
+[FAIL] zip doc extracted (csv->doc) nested/data.csv
+[FAIL] zip schematic extracted nested/sch/sample.kicad_sch
+
+== building minimal docx in memory ==
+[PASS] docx import ok Imported document llama_test_76425921
+[PASS] docx text parsed LM358 in text
+
+== save + reload ==
+[PASS] project saved to build\test_project\project.json 

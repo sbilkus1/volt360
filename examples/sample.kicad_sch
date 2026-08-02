@@ -1,0 +1,68 @@
+(kicad_sch
+  (version 20221018)
+  (generator "llama-cad-eda")
+  (generator_version "1.0")
+  (paper "A4")
+  (lib_symbols
+    (symbol "Device:R"
+      (pin_names (offset 1.016))
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "R"
+        (at 0 2.54 0)
+        (effects (font (size 1.27 1.27)))
+      )
+      (property "Value" "R"
+        (at 0 -2.54 0)
+        (effects (font (size 1.27 1.27)))
+      )
+      (symbol "R_0_1"
+        (rectangle
+          (start -1.016 -1.524)
+          (end 1.016 1.524)
+          (stroke (width 0.254) (type default))
+          (fill (type none))
+        )
+        (pin "passive"
+          (at 0 3.81 270)
+          (length 2.794)
+          (name "1") (number "1")
+          (effects (font (size 1.27 1.27)))
+        )
+        (pin "passive"
+          (at 0 -3.81 90)
+          (length 2.794)
+          (name "2") (number "2")
+          (effects (font (size 1.27 1.27)))
+        )
+      )
+    )
+  )
+  (symbol
+    (lib_id "Device:R")
+    (at 100 100 0)
+    (unit 1)
+    (in_bom yes)
+    (on_board yes)
+    (property "Reference" "R1" (at 100 100 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "10k" (at 100 100 0) (effects (font (size 1.27 1.27))))
+    (pin "passive" (uuid "00000000-0000-0000-0000-000000000001"))
+    (pin "passive" (uuid "00000000-0000-0000-0000-000000000002"))
+    (instances)
+  )
+  (wire
+    (pts (xy 90 100) (xy 96.984 100))
+    (stroke (width 0) (type default))
+    (uuid "00000000-0000-0000-0000-000000000003")
+  )
+  (label "GND"
+    (at 90 100 0)
+    (effects (font (size 1.27 1.27)))
+    (uuid "00000000-0000-0000-0000-000000000004")
+  )
+  (net (code 0) (name "GND") (node (ref "R1") (pin 2)))
+  (text "example schematic"
+    (at 50 150 0)
+    (effects (font (size 2.5 2.5)))
+  )
+)

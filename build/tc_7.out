@@ -1,0 +1,6 @@
+import ok=1 pcbs=1 cad=2
+assembly idx=0 cad=3
+find=1 valid=1
+co_design_print_cad...
+print ok=1
+DONE
