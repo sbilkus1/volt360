@@ -19,17 +19,11 @@ jobs:
         with:
           arch: x64
 
-      - name: Clone dependencies
+      - name: Clone raylib
         shell: cmd
         run: |
           mkdir third_party
           git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git third_party\raylib
-          :: Use miniz from a specific commit that matches our file structure
-          git clone --depth 1 https://github.com/richgel999/miniz.git third_party\miniz_temp
-          :: Create necessary header
-          echo #pragma once > third_party\miniz_temp\miniz_export.h
-          echo #define MINIZ_EXPORT >> third_party\miniz_temp\miniz_export.h
-          move third_party\miniz_temp third_party\miniz
 
       - name: Build, Test, App
         shell: cmd
