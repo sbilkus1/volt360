@@ -112,7 +112,8 @@ bool website_generate(const char *output_dir) {
         "Built from the best open-source EDA/CAD/slicer projects.</p>"
         "<a href=#download class=btn>Download Installer</a>"
         "<a href=account.html class=btn>Create Account</a>"
-        "<a href=revisions.html class=\"btn btn-outline\">Revisions</a>"
+        "<a href=revisions.html class=btn>Revisions</a>"
+        "<a href=docs.html class=\"btn btn-outline\">Documentation</a>"
         "<a href=#features class=\"btn btn-outline\">Features</a></div>"
 
         "<div class=section id=features><h2>Everything You Need</h2>"
