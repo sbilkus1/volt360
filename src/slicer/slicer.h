@@ -61,6 +61,7 @@ typedef struct {
 } SliceSettings;
 
 void slice_settings_default(SliceSettings *s);
+void slice_settings_validate(SliceSettings *s);
 
 // ---------------- toolpaths ----------------
 typedef enum { SLICE_PATH_PERIMETER, SLICE_PATH_INFILL } SlicePathKind;

@@ -11,8 +11,12 @@ set SRCDIR=%ROOT%\src
 set MINIZDIR=%ROOT%\third_party\miniz
 set APPOUT=%BUILD%\app.exe
 set TESTOUT=%BUILD%\test_import.exe
+set TEST414OUT=%BUILD%\test_414.exe
 set MODE=app
 if /i "%~1"=="test" set MODE=test
+if /i "%~1"=="test414" set MODE=test414
+if /i "%~1"=="alltests" set MODE=alltests
+if /i "%~1"=="vita" set MODE=vita
 
 if not exist "%BUILD%" mkdir "%BUILD%"
 
@@ -54,6 +58,36 @@ if /i "%MODE%"=="test" (
   link /nologo /OUT:"%TESTOUT%" test_import.obj %CORE% raylib.lib %LIBS% || exit /b 1
   popd
   echo [build] BUILD OK: %TESTOUT%
+  exit /b 0
+)
+
+if /i "%MODE%"=="test414" (
+  echo [build] compiling test_414...
+  cl %CFLAGS% /GS- /I"%RLINC1%" /I"%RLINC2%" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\tests\test_414.c" /Fotest_414.obj || exit /b 1
+  link /nologo /STACK:8388608 /OUT:"%TEST414OUT%" test_414.obj %CORE% raylib.lib %LIBS% || exit /b 1
+  popd
+  echo [build] BUILD OK: %TEST414OUT%
+  exit /b 0
+)
+
+if /i "%MODE%"=="alltests" (
+  echo [build] compiling test_import...
+  cl %CFLAGS% /I"%RLINC1%" /I"%RLINC2%" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\tests\test_import.c" /Fotest_import.obj || exit /b 1
+  link /nologo /OUT:"%TESTOUT%" test_import.obj %CORE% raylib.lib %LIBS% || exit /b 1
+  echo [build] compiling test_414...
+  cl %CFLAGS% /GS- /I"%RLINC1%" /I"%RLINC2%" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\tests\test_414.c" /Fotest_414.obj || exit /b 1
+  link /nologo /STACK:8388608 /OUT:"%TEST414OUT%" test_414.obj %CORE% raylib.lib %LIBS% || exit /b 1
+  popd
+  echo [build] BUILD OK: %TESTOUT% + %TEST414OUT%
+  exit /b 0
+)
+
+if /i "%MODE%"=="vita" (
+  echo [build] compiling vitachrona test...
+  cl %CFLAGS% /GS- /I"%RLINC1%" /I"%RLINC2%" /I"%MINIZDIR%" /I"%ROOT%" /I"%SRCDIR%" /c "%ROOT%\tests\test_vitachrona.c" /Fotest_vitachrona.obj || exit /b 1
+  link /nologo /STACK:8388608 /OUT:"%BUILD%\test_vitachrona.exe" test_vitachrona.obj %CORE% raylib.lib %LIBS% || exit /b 1
+  popd
+  echo [build] BUILD OK: %BUILD%\test_vitachrona.exe
   exit /b 0
 )
 

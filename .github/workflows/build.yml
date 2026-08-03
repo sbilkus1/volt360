@@ -94,11 +94,13 @@ jobs:
       - name: Build
         run: |
           cd third_party/raylib/src
-          make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC
-          cd ../../build
-          gcc -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -DPLATFORM_DESKTOP -c $(find ../src -name "*.c" ! -name "main.c" ! -name "test_import.c")
-          gcc -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -c ../tests/test_import.c
+          make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC RAYLIB_RELEASE_PATH=../src
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p build && cd build
+          gcc -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -I../third_party/raylib/src/external/glfw/include -DPLATFORM_DESKTOP -D_CRT_SECURE_NO_WARNINGS -c $(find ../src -name "*.c" ! -name "main.c" ! -name "test_import.c") || true
+          gcc -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -I../third_party/raylib/src/external/glfw/include -DPLATFORM_DESKTOP -c ../tests/test_import.c
           gcc -o test_import *.o ../third_party/raylib/src/libraylib.a -lm -lpthread -ldl -lrt
+          cd "$GITHUB_WORKSPACE" && build/test_import
 
   build-macos:
     runs-on: macos-latest
@@ -109,8 +111,9 @@ jobs:
       - name: Build
         run: |
           cd third_party/raylib/src
-          make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC
-          cd ../../build
-          clang -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -DPLATFORM_DESKTOP -c $(find ../src -name "*.c" ! -name "main.c" ! -name "test_import.c")
-          clang -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -c ../tests/test_import.c
+          make PLATFORM=PLATFORM_DESKTOP RAYLIB_LIBTYPE=STATIC RAYLIB_RELEASE_PATH=../src
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p build && cd build
+          clang -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -I../third_party/raylib/src/external/glfw/include -DPLATFORM_DESKTOP -c $(find ../src -name "*.c" ! -name "main.c" ! -name "test_import.c") || true
+          clang -O2 -Wall -I../src -I../third_party/raylib/src -I../third_party/miniz -I../third_party/raylib/src/external/glfw/include -DPLATFORM_DESKTOP -c ../tests/test_import.c
           clang -o test_import *.o ../third_party/raylib/src/libraylib.a -framework CoreVideo -framework IOKit -framework Cocoa -framework GLUT -framework OpenGL

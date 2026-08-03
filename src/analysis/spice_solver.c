@@ -136,6 +136,8 @@ bool spice_dc_solve(SpiceCircuit *c, double *voltages, double *currents, int max
     if (!c || !voltages || !currents) return false;
 
     N = c->nnodes;
+    if (N < 1) return false;
+
     n_vsrc = 0;
     for (i = 0; i < c->nelems; i++)
         if (c->elems[i].type == SPICE_VSOURCE) n_vsrc++;
@@ -185,6 +187,14 @@ bool spice_dc_solve(SpiceCircuit *c, double *voltages, double *currents, int max
             if (np >= 0) b[np] -= e->value;
             if (nm >= 0) b[nm] += e->value;
         }
+    }
+
+    /* Ground node: zero the row/column for the grounded node, set diagonal=1 */
+    if (c->ngnd >= 0 && c->ngnd < N) {
+        int g = c->ngnd;
+        for (i = 0; i < dim; i++) { A[g * dim + i] = 0.0; A[i * dim + g] = 0.0; }
+        A[g * dim + g] = 1.0;
+        b[g] = 0.0;
     }
 
     for (i = 0; i < N; i++)

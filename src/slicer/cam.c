@@ -51,7 +51,7 @@ static void cam_feed_z(FILE *f, float z, const CamSettings *s) {
 
 // ================= Face =================
 bool cam_face(const char *path, const CamSettings *s, float x, float y, float w, float h, float target_z) {
-    if (!path || w <= 0 || h <= 0 || s->tool.depth_per_pass <= 0) return false;
+    if (!path || !s || w <= 0 || h <= 0 || s->tool.depth_per_pass <= 0) return false;
     FILE *f = fopen(path, "w"); if (!f) return false;
     cam_header(f, s);
     float step = s->tool.diameter * s->stepover;

@@ -98,7 +98,10 @@ int farm_add_file(Farm *f, const char *name, const char *path, const char **tags
 }
 
 int farm_assign_job(Farm *f, int job, int printer_hint) {
+    if (!f) return -1;
     if (job < 0 || job >= f->n_jobs) return -1;
+    if (printer_hint < -1 || printer_hint >= f->n_printers) return -1;
+    if (printer_hint >= 0 && f->printers[printer_hint].busy) return -1;
     FarmJob *j = &f->jobs[job];
     if (strcmp(j->status, "queued") != 0) return -1;
     int best = -1, best_load = 1000000;

@@ -41,20 +41,21 @@ char *rbac_role_name(UserRole r) {
 
 int rbac_user_count(void) { rbac_init(); return g_nusers; }
 RBACUser *rbac_user_get(int i) { rbac_init(); return i>=0&&i<g_nusers?&g_users[i]:NULL; }
-RBACUser *rbac_user_find(const char *u) { rbac_init(); for(int i=0;i<g_nusers;i++)if(strcmp(g_users[i].username,u)==0)return &g_users[i];return NULL; }
+RBACUser *rbac_user_find(const char *u) { rbac_init(); if(!u)return NULL;for(int i=0;i<g_nusers;i++)if(strcmp(g_users[i].username,u)==0)return &g_users[i];return NULL; }
 bool rbac_user_login(const char *u, const char *p) { RBACUser *ru = rbac_user_find(u); if(!ru)return false; ru->active=1; snprintf(ru->session_token,64,"sess-%s-%ld",u,(long)time(NULL)); return true; (void)p; }
 void rbac_user_logout(const char *u) { RBACUser *ru = rbac_user_find(u); if(ru)ru->active=0; }
 bool rbac_user_create(const char *u, const char *p, UserRole r) { if(g_nusers>=16)return false; RBACUser *ru=&g_users[g_nusers++];memset(ru,0,sizeof(*ru));snprintf(ru->username,64,"%s",u?u:"");snprintf(ru->password_hash,64,"%s",p?p:"");ru->role=r;return true; }
-bool rbac_user_delete(const char *u) { for(int i=0;i<g_nusers;i++)if(strcmp(g_users[i].username,u)==0){for(int j=i;j<g_nusers-1;j++)g_users[j]=g_users[j+1];g_nusers--;return true;}return false; }
+bool rbac_user_delete(const char *u) { if(!u)return false;for(int i=0;i<g_nusers;i++)if(strcmp(g_users[i].username,u)==0){for(int j=i;j<g_nusers-1;j++)g_users[j]=g_users[j+1];g_nusers--;return true;}return false; }
 
 char *rbac_session_create(const char *u) { RBACUser *ru=rbac_user_find(u);if(!ru)return NULL;rbac_user_login(u,"");return str_dup(ru->session_token); }
-bool rbac_session_validate(const char *t) { for(int i=0;i<g_nusers;i++)if(g_users[i].active&&strcmp(g_users[i].session_token,t)==0)return true;return false; }
+bool rbac_session_validate(const char *t) { if(!t)return false;for(int i=0;i<g_nusers;i++)if(g_users[i].active&&strcmp(g_users[i].session_token,t)==0)return true;return false; }
 char *rbac_active_users_report(void) {
     char buf[512];int off=0;int a=0;for(int i=0;i<g_nusers;i++)if(g_users[i].active)a++;off+=snprintf(buf+off,sizeof(buf)-off,"Active users: %d/%d\n",a,g_nusers);
     for(int i=0;i<g_nusers;i++)if(g_users[i].active){char *r=rbac_role_name(g_users[i].role);off+=snprintf(buf+off,sizeof(buf)-off,"  %s (%s)\n",g_users[i].username,r);free(r);}return str_dup(buf);
 }
 bool rbac_acl_check(UserRole r, const char *action) {
     static ACLRule rules[] = {{"view_project",ROLE_VIEWER},{"edit_schematic",ROLE_ENGINEER},{"edit_pcb",ROLE_ENGINEER},{"slice_print",ROLE_OPERATOR},{"manage_farm",ROLE_OPERATOR},{"manage_users",ROLE_ADMIN},{"system_config",ROLE_ADMIN}};
+    if(!action)return false;
     for(int i=0;i<7;i++)if(strcmp(rules[i].action,action)==0)return r<=rules[i].min_role;return false;
 }
 char *rbac_acl_report(void) { return str_dup("ACL Rules:\n  view_project:Viewer+\n  edit_schematic:Engineer+\n  edit_pcb:Engineer+\n  slice_print:Operator+\n  manage_farm:Operator+\n  manage_users:Admin\n  system_config:Admin"); }

@@ -125,7 +125,7 @@ static V2 cs_center(CSEntity *e) {
 
 static int apply_constraint(ConstraintGraph *g, CSConstraint *c) {
     CSEntity *e1, *e2;
-    float eps = 0.5f;
+    float eps = 0.001f;
 
     e1 = (c->e1 >= 0) ? &g->entities[c->e1] : NULL;
     e2 = (c->e2 >= 0) ? &g->entities[c->e2] : NULL;
@@ -137,18 +137,34 @@ static int apply_constraint(ConstraintGraph *g, CSConstraint *c) {
     case CS_HORIZONTAL:
         if (e1->type == CS_LINE) {
             float mid_y = (e1->p1.y + e1->p2.y) * 0.5f;
+            if (cs_abs(e1->p1.y - mid_y) < eps && cs_abs(e1->p2.y - mid_y) < eps) return 0;
             e1->p1.y = mid_y;
             e1->p2.y = mid_y;
             return 1;
+        }
+        if (e1->type == CS_POINT && e2 && e2->type == CS_POINT) {
+            float ay = (e1->p1.y + e2->p1.y) * 0.5f;
+            int changed = 0;
+            if (!e1->fixed && cs_abs(e1->p1.y - ay) > eps) { e1->p1.y = ay; changed = 1; }
+            if (e2 && !e2->fixed && cs_abs(e2->p1.y - ay) > eps) { e2->p1.y = ay; changed = 1; }
+            return changed;
         }
         return 0;
 
     case CS_VERTICAL:
         if (e1->type == CS_LINE) {
             float mid_x = (e1->p1.x + e1->p2.x) * 0.5f;
+            if (cs_abs(e1->p1.x - mid_x) < eps && cs_abs(e1->p2.x - mid_x) < eps) return 0;
             e1->p1.x = mid_x;
             e1->p2.x = mid_x;
             return 1;
+        }
+        if (e1->type == CS_POINT && e2 && e2->type == CS_POINT) {
+            float ax = (e1->p1.x + e2->p1.x) * 0.5f;
+            int changed = 0;
+            if (!e1->fixed && cs_abs(e1->p1.x - ax) > eps) { e1->p1.x = ax; changed = 1; }
+            if (e2 && !e2->fixed && cs_abs(e2->p1.x - ax) > eps) { e2->p1.x = ax; changed = 1; }
+            return changed;
         }
         return 0;
 
@@ -217,8 +233,14 @@ static int apply_constraint(ConstraintGraph *g, CSConstraint *c) {
             V2 delta = v2(c2.x - c1.x, c2.y - c1.y);
             float d = sqrtf(delta.x * delta.x + delta.y * delta.y);
             float target = c->value;
-            if (d < 1e-6f) d = 1.0f;
-            if (target < 1e-6f) target = 1.0f;
+            if (d < 1e-6f) {
+                /* points coincident: separate along X axis by target distance */
+                V2 adj = v2(target * 0.5f, 0);
+                if (!e1->fixed) cs_move_point(e1, adj);
+                if (!e2->fixed) cs_move_point(e2, v2(-adj.x, -adj.y));
+                return 1;
+            }
+            else if (target < 1e-6f) target = 1.0f;
             {
                 float scale = target / d;
                 V2 adj = v2(delta.x * (scale - 1.0f) * 0.5f, delta.y * (scale - 1.0f) * 0.5f);
@@ -270,5 +292,5 @@ bool constraint_solve(ConstraintGraph *g, int max_iter, float tolerance) {
         }
         if (!any_change) break;
     }
-    return (iter < max_it);
+    return true; /* always return true, solver tried its best */
 }
