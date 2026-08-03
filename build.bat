@@ -20,8 +20,11 @@ if /i "%~1"=="vita" set MODE=vita
 
 if not exist "%BUILD%" mkdir "%BUILD%"
 
-call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
-if errorlevel 1 ( echo [build] VCVARSALL FAILED & exit /b 1 )
+where cl >nul 2>&1
+if errorlevel 1 (
+  call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64 >nul
+  if errorlevel 1 ( echo [build] VCVARSALL FAILED & exit /b 1 )
+)
 
 set CFLAGS=/nologo /O2 /W3 /wd4996 /wd4100 /wd4189 /utf-8 /DPLATFORM_DESKTOP /DGRAPHICS_API_OPENGL_33 /D_CRT_SECURE_NO_WARNINGS
 set LIBS=user32.lib gdi32.lib shell32.lib winmm.lib opengl32.lib ole32.lib comdlg32.lib uuid.lib advapi32.lib winhttp.lib
