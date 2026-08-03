@@ -21,3 +21,7 @@ bool bool_intersect_mesh(CadMesh *a, CadMesh *b, CadMesh *out);
 // Generate a mesh for the union of two meshes (simple: combines verts).
 // Mesh must be properly merged/tesselated for clean results.
 bool bool_union_mesh(CadMesh *a, CadMesh *b, CadMesh *out);
+
+// Voxel-based boolean subtraction (A - B). Uses a 64x64x64 voxel grid,
+// then generates surface mesh from exposed faces. Returns true on success.
+bool bool_subtract_mesh(CadMesh *a, CadMesh *b, CadMesh *out);

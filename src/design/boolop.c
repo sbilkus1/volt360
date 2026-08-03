@@ -132,3 +132,194 @@ bool bool_union_mesh(CadMesh *a, CadMesh *b, CadMesh *out) {
     mesh_bbox(out);
     return true;
 }
+
+static int point_inside_mesh(V3 pt, CadMesh *m) {
+    int hits = 0;
+    float px = pt.x, py = pt.y, pz = pt.z;
+    for (int t = 0; t < m->ntris; t++) {
+        int i0 = m->idx[t*3], i1 = m->idx[t*3+1], i2 = m->idx[t*3+2];
+        float v0x = m->pos[i0*3], v0y = m->pos[i0*3+1], v0z = m->pos[i0*3+2];
+        float v1x = m->pos[i1*3], v1y = m->pos[i1*3+1], v1z = m->pos[i1*3+2];
+        float v2x = m->pos[i2*3], v2y = m->pos[i2*3+1], v2z = m->pos[i2*3+2];
+        float min_y = v0y, max_y = v0y;
+        if (v1y < min_y) min_y = v1y; if (v2y < min_y) min_y = v2y;
+        if (v1y > max_y) max_y = v1y; if (v2y > max_y) max_y = v2y;
+        if (py < min_y || py >= max_y) continue;
+        float min_x = v0x, max_x = v0x;
+        if (v1x < min_x) min_x = v1x; if (v2x < min_x) min_x = v2x;
+        if (v1x > max_x) max_x = v1x; if (v2x > max_x) max_x = v2x;
+        if (px > max_x) continue;
+        float e1x = v1x - v0x, e1y = v1y - v0y, e1z = v1z - v0z;
+        float e2x = v2x - v0x, e2y = v2y - v0y, e2z = v2z - v0z;
+        float nx = e1y*e2z - e1z*e2y;
+        float ny = e1z*e2x - e1x*e2z;
+        float nz = e1x*e2y - e1y*e2x;
+        float len = sqrtf(nx*nx + ny*ny + nz*nz);
+        if (len < 1e-10f) continue;
+        nx /= len; ny /= len; nz /= len;
+        float dx = e1x, dy = e1y, dz = e1z;
+        float t_num = ny*(v0y - py) + nz*(v0z - pz);
+        float t_den = ny*dy + nz*dz;
+        if (fabsf(t_den) < 1e-10f) continue;
+        float t = t_num / t_den;
+        if (t < 0 || t > 1) continue;
+        float hx = v0x + dx*t - px;
+        if (hx < 0) continue;
+        float ex = e2x, ey = e2y, ez = e2z;
+        float s_den = ey*nz - ez*ny;
+        if (fabsf(s_den) < 1e-10f) continue;
+        float s_num = ey*(py - v0y - dy*t) - ex*(pz - v0z - dz*t);
+        float s = s_num / s_den;
+        if (s < 0 || s > 1 || t + s > 1) continue;
+        hits++;
+    }
+    return hits % 2;
+}
+
+#define VOX_RES 64
+
+bool bool_subtract_mesh(CadMesh *a, CadMesh *b, CadMesh *out) {
+    if (!a || !b || !out || !a->valid || !b->valid) return false;
+    memset(out, 0, sizeof(*out));
+
+    V3 umin = v3_min(a->bmin, b->bmin);
+    V3 umax = v3_max(a->bmax, b->bmax);
+    float pad = 0.02f;
+    umin.x -= pad; umin.y -= pad; umin.z -= pad;
+    umax.x += pad; umax.y += pad; umax.z += pad;
+    float sx = umax.x - umin.x, sy = umax.y - umin.y, sz = umax.z - umin.z;
+    if (sx <= 0 || sy <= 0 || sz <= 0) return false;
+
+    float cs = sx/(float)VOX_RES, cy_s = sy/(float)VOX_RES, cz_s = sz/(float)VOX_RES;
+    int total = VOX_RES * VOX_RES * VOX_RES;
+    unsigned char *grid = (unsigned char *)calloc((size_t)total, 1);
+    if (!grid) return false;
+
+    for (int iz = 0; iz < VOX_RES; iz++) {
+        for (int iy = 0; iy < VOX_RES; iy++) {
+            for (int ix = 0; ix < VOX_RES; ix++) {
+                V3 pt = v3(umin.x + ((float)ix + 0.5f)*cs,
+                           umin.y + ((float)iy + 0.5f)*cy_s,
+                           umin.z + ((float)iz + 0.5f)*cz_s);
+                if (point_inside_mesh(pt, a)) {
+                    grid[(iz*VOX_RES + iy)*VOX_RES + ix] = 1;
+                }
+            }
+        }
+    }
+
+    for (int iz = 0; iz < VOX_RES; iz++) {
+        for (int iy = 0; iy < VOX_RES; iy++) {
+            for (int ix = 0; ix < VOX_RES; ix++) {
+                int idx = (iz*VOX_RES + iy)*VOX_RES + ix;
+                if (!grid[idx]) continue;
+                V3 pt = v3(umin.x + ((float)ix + 0.5f)*cs,
+                           umin.y + ((float)iy + 0.5f)*cy_s,
+                           umin.z + ((float)iz + 0.5f)*cz_s);
+                if (point_inside_mesh(pt, b)) {
+                    grid[idx] = 0;
+                }
+            }
+        }
+    }
+
+    int nfaces = 0;
+    for (int iz = 0; iz < VOX_RES; iz++) {
+        for (int iy = 0; iy < VOX_RES; iy++) {
+            for (int ix = 0; ix < VOX_RES; ix++) {
+                int idx = (iz*VOX_RES + iy)*VOX_RES + ix;
+                if (!grid[idx]) continue;
+                if (ix == 0 || !grid[idx - 1]) nfaces++;
+                if (ix == VOX_RES-1 || !grid[idx + 1]) nfaces++;
+                if (iy == 0 || !grid[idx - VOX_RES]) nfaces++;
+                if (iy == VOX_RES-1 || !grid[idx + VOX_RES]) nfaces++;
+                if (iz == 0 || !grid[idx - VOX_RES*VOX_RES]) nfaces++;
+                if (iz == VOX_RES-1 || !grid[idx + VOX_RES*VOX_RES]) nfaces++;
+            }
+        }
+    }
+    if (nfaces == 0) { free(grid); return false; }
+
+    out->ntris = nfaces * 2;
+    out->nverts = nfaces * 4;
+    out->pos = (float *)malloc(sizeof(float) * 3 * (size_t)out->nverts);
+    out->idx = (int *)malloc(sizeof(int) * 3 * (size_t)out->ntris);
+    out->nrm = (float *)calloc((size_t)out->nverts * 3, sizeof(float));
+    out->valid = 1;
+
+    int vi = 0, ti = 0;
+    for (int iz = 0; iz < VOX_RES; iz++) {
+        for (int iy = 0; iy < VOX_RES; iy++) {
+            for (int ix = 0; ix < VOX_RES; ix++) {
+                int idx = (iz*VOX_RES + iy)*VOX_RES + ix;
+                if (!grid[idx]) continue;
+                float x0 = umin.x + (float)ix * cs;
+                float x1 = x0 + cs;
+                float y0 = umin.y + (float)iy * cy_s;
+                float y1 = y0 + cy_s;
+                float z0 = umin.z + (float)iz * cz_s;
+                float z1 = z0 + cz_s;
+
+                if (ix == 0 || !grid[idx - 1]) {
+                    int b = vi;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z1; vi++;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z1; vi++;
+                    out->idx[ti*3]=b; out->idx[ti*3+1]=b+1; out->idx[ti*3+2]=b+2; ti++;
+                    out->idx[ti*3]=b; out->idx[ti*3+1]=b+2; out->idx[ti*3+2]=b+3; ti++;
+                }
+                if (ix == VOX_RES-1 || !grid[idx + 1]) {
+                    int b = vi;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z1; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z1; vi++;
+                    out->idx[ti*3]=b+2; out->idx[ti*3+1]=b+1; out->idx[ti*3+2]=b; ti++;
+                    out->idx[ti*3]=b+3; out->idx[ti*3+1]=b+2; out->idx[ti*3+2]=b; ti++;
+                }
+                if (iy == 0 || !grid[idx - VOX_RES]) {
+                    int b = vi;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z1; vi++;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z1; vi++;
+                    out->idx[ti*3]=b+2; out->idx[ti*3+1]=b+1; out->idx[ti*3+2]=b; ti++;
+                    out->idx[ti*3]=b+3; out->idx[ti*3+1]=b+2; out->idx[ti*3+2]=b; ti++;
+                }
+                if (iy == VOX_RES-1 || !grid[idx + VOX_RES]) {
+                    int b = vi;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z1; vi++;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z1; vi++;
+                    out->idx[ti*3]=b; out->idx[ti*3+1]=b+1; out->idx[ti*3+2]=b+2; ti++;
+                    out->idx[ti*3]=b; out->idx[ti*3+1]=b+2; out->idx[ti*3+2]=b+3; ti++;
+                }
+                if (iz == 0 || !grid[idx - VOX_RES*VOX_RES]) {
+                    int b = vi;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z0; vi++;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z0; vi++;
+                    out->idx[ti*3]=b; out->idx[ti*3+1]=b+1; out->idx[ti*3+2]=b+2; ti++;
+                    out->idx[ti*3]=b; out->idx[ti*3+1]=b+2; out->idx[ti*3+2]=b+3; ti++;
+                }
+                if (iz == VOX_RES-1 || !grid[idx + VOX_RES*VOX_RES]) {
+                    int b = vi;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z1; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y0; out->pos[(vi)*3+2]=z1; vi++;
+                    out->pos[(vi)*3]=x1; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z1; vi++;
+                    out->pos[(vi)*3]=x0; out->pos[(vi)*3+1]=y1; out->pos[(vi)*3+2]=z1; vi++;
+                    out->idx[ti*3]=b+2; out->idx[ti*3+1]=b+1; out->idx[ti*3+2]=b; ti++;
+                    out->idx[ti*3]=b+3; out->idx[ti*3+1]=b+2; out->idx[ti*3+2]=b; ti++;
+                }
+            }
+        }
+    }
+    out->nverts = vi;
+    out->ntris = ti;
+    free(grid);
+    mesh_bbox(out);
+    return true;
+}

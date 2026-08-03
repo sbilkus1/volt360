@@ -119,7 +119,7 @@ typedef struct {
 } FpInst;
 
 typedef struct { V2 a, b; float width; char *net; } Track;
-typedef struct { V2 pos; float drill; float outer; char *net; } Via;
+typedef struct { V2 pos; float drill; float outer; char *net; char *name; } Via;
 typedef struct { V2 *pts; int npts; char *net; char *layer; } Zone;
 
 typedef struct {

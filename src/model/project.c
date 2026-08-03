@@ -96,7 +96,7 @@ void pcb_free_contents(Pcb *p) {
     free(p->fps);
     for (int i = 0; i < p->ntracks; i++) free(p->tracks[i].net);
     free(p->tracks);
-    for (int i = 0; i < p->nvias; i++) free(p->vias[i].net);
+    for (int i = 0; i < p->nvias; i++) { free(p->vias[i].net); free(p->vias[i].name); }
     free(p->vias);
     for (int i = 0; i < p->nzones; i++) { free(p->zones[i].net); free(p->zones[i].layer); free(p->zones[i].pts); }
     free(p->zones);
@@ -659,7 +659,7 @@ static void pcb_write(JsonW *w, Pcb *p) {
     jw_end(w);
     jw_key(w, "vias");
     jw_arr(w);
-    for (int i = 0; i < p->nvias; i++) { jw_arr_item_obj(w); jw_key(w, "x"); jw_num(w, p->vias[i].pos.x); jw_key(w, "y"); jw_num(w, p->vias[i].pos.y); jw_key(w, "drill"); jw_num(w, p->vias[i].drill); jw_key(w, "outer"); jw_num(w, p->vias[i].outer); jw_key(w, "net"); jw_str(w, p->vias[i].net); jw_end(w); }
+    for (int i = 0; i < p->nvias; i++) { jw_arr_item_obj(w); jw_key(w, "x"); jw_num(w, p->vias[i].pos.x); jw_key(w, "y"); jw_num(w, p->vias[i].pos.y); jw_key(w, "drill"); jw_num(w, p->vias[i].drill); jw_key(w, "outer"); jw_num(w, p->vias[i].outer); jw_key(w, "net"); jw_str(w, p->vias[i].net); jw_key(w, "name"); jw_str(w, p->vias[i].name); jw_end(w); }
     jw_end(w);
     jw_key(w, "prims");
     jw_arr(w);
@@ -720,6 +720,7 @@ static void pcb_read(Pcb *p, JsonValue *obj) {
             p->vias[i].drill = (float)json_get_num(it, "drill");
             p->vias[i].outer = (float)json_get_num(it, "outer");
             p->vias[i].net = str_dup(json_get_str(it, "net") ? json_get_str(it, "net") : "");
+            p->vias[i].name = str_dup(json_get_str(it, "name") ? json_get_str(it, "name") : "");
         }
     }
     JsonValue *prims = json_get_arr(obj, "prims");
