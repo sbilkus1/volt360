@@ -32,6 +32,8 @@ void slice_settings_default(SliceSettings *s) {
     s->filament_dia = 1.75f;
     s->tools = 0;
     s->random_color = 0;
+    s->color_change_layer = -1;
+    s->color_change_cmd = "M600";
 
     // — truncated for brevity; remaining fields zero
 

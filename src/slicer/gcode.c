@@ -41,8 +41,8 @@ bool gcode_emit_fp_tool(FILE *f, SliceResult *r, const SliceSettings *cfg, int f
     int current_temp = cfg->hotend_temp;
     for (int li = 0; li < r->nlayers; li++) {
         SliceLayer *L = &r->layers[li];
-        if (cfg->color_change_layer >= 0 && li == cfg->color_change_layer && cfg->color_change_cmd)
-            fprintf(f, "%s ; color change at layer %d\n", cfg->color_change_cmd, li);
+        if (cfg->color_change_layer >= 0 && li == cfg->color_change_layer)
+            fprintf(f, "%s ; color change at layer %d\n", cfg->color_change_cmd ? cfg->color_change_cmd : "M600", li);
         if (L->npaths <= 0) continue;
         fprintf(f, ";LAYER:%d ;Z:%.2f\n", li, L->z);
         fprintf(f, "G1 Z%.2f F%.0f ; move to layer\n", L->z, cfg->travel_speed * 60.0);
