@@ -12,6 +12,7 @@
 #include "pcb3d.h"
 #include "sch_canvas.h"
 #include "diff_view.h"
+#include "measure_tool.h"
 
 typedef enum { UI_SCH, UI_PCB, UI_3D, UI_FIT, UI_DESIGN, UI_ASSIST, UI_PRINT, UI_DIFF } UIMode;
 
@@ -78,6 +79,7 @@ typedef struct {
     bool pcb_3d;
     SchCanvas sch_canvas;
     DiffView diff_view;
+    MeasureTool measure;
 } App;
 
 void app_init(App *app);

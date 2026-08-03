@@ -848,7 +848,10 @@ static void render_professional_ui(App *app) {
                     app->pcb3d_view.vp_h = cvh - 22;
                     pcb3d_render(&app->pcb3d_view, pcb);
                 } else {
+                    Rectangle pcb_vp = { (float)(canvas_x + 2), (float)(cvy + 20), (float)(canvas_w - 4), (float)(cvh - 22) };
+                    measure_update(&app->measure, pcb, pcb_vp, app->pan, app->zoom);
                     draw_pcb(app, pcb, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22);
+                    measure_render(&app->measure, pcb_vp, app->pan, app->zoom);
                 }
             } else DrawText("Drop a folder with .kicad_pcb files", canvas_x + 20, cvy + 60, 14, GRAY);
             break;
@@ -966,6 +969,7 @@ void app_init(App *app) {
     if (app->farm.n_printers == 0) farm_seed_demo(&app->farm);
     sch_canvas_init(&app->sch_canvas, 0, 0, 800, 600);
     diff_view_init(&app->diff_view);
+    measure_init(&app->measure);
 }
 
 void app_free(App *app) {
@@ -1255,6 +1259,18 @@ void app_frame(App *app) {
         }
         if (app->mode == UI_PCB && IsKeyPressed(KEY_B)) {
             app->pcb_3d = !app->pcb_3d;
+        }
+        /* measurement tool: Ctrl+M or Shift+M toggles */
+        if (app->mode == UI_PCB) {
+            int ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+            int shift = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+            if (IsKeyPressed(KEY_M) && (ctrl || shift)) {
+                if (app->measure.active) {
+                    measure_deactivate(&app->measure);
+                } else {
+                    measure_activate(&app->measure);
+                }
+            }
         }
 
         /* sch canvas update */
