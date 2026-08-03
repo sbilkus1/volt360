@@ -1,5 +1,8 @@
 #include "ui.h"
 #include "../import/importer.h"
+#include "../core/v360_bundle.h"
+#include "../core/stl_download.h"
+#include "../core/lua_script.h"
 #include "../llm/ollama.h"
 #include "../design/assistant.h"
 #include "../design/joints.h"
@@ -800,21 +803,54 @@ static void render_professional_ui(App *app) {
     canvas_render(app, &cv);
 
     /* small mode indicator in canvas title bar */
-    const char *mode_names[] = {"SCHEMATIC","PCB EDITOR","3D VIEWER","FIT ANALYSIS","DESIGN","ASSISTANT","PRINT CENTER"};
+    const char *mode_names[] = {"SCHEMATIC","PCB EDITOR","3D VIEWER","FIT ANALYSIS","DESIGN","ASSISTANT","PRINT CENTER","DIFF"};
     DrawText(mode_names[app->mode], canvas_x + 8, cvy + 4, 10, (Color){120,120,130,255});
 
     /* per-mode canvas draw */
     switch (app->mode) {
         case UI_SCH: {
+            app->sch_canvas.viewport = (Rectangle){ (float)canvas_x, (float)cvy, (float)canvas_w, (float)cvh };
             Schematic *s = (app->sel_sch < app->proj.schematics.len) ? &app->proj.schematics.v[app->sel_sch] : NULL;
-            if (s) draw_schematic(app, s, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22);
+            if (s && app->sch_canvas.nsymbols == 0 && app->sch_canvas.nwires == 0) {
+                for (int i = 0; i < s->ninsts; i++) {
+                    SchematicSymbol sym;
+                    memset(&sym, 0, sizeof(sym));
+                    sym.ref = s->insts[i].ref;
+                    sym.value = s->insts[i].value;
+                    sym.symbol = s->insts[i].symbol;
+                    sym.pos = s->insts[i].pos;
+                    sym.rotation = s->insts[i].rotation;
+                    sym.mirrored = s->insts[i].mirrored;
+                    sch_canvas_add_symbol(&app->sch_canvas, &sym);
+                }
+                for (int i = 0; i < s->nwires; i++) {
+                    void *tmp = realloc(app->sch_canvas.wires,
+                        (size_t)(app->sch_canvas.nwires + 1) * sizeof(app->sch_canvas.wires[0]));
+                    if (!tmp) continue;
+                    app->sch_canvas.wires = tmp;
+                    app->sch_canvas.wires[app->sch_canvas.nwires].start = s->wires[i].a;
+                    app->sch_canvas.wires[app->sch_canvas.nwires].end = s->wires[i].b;
+                    app->sch_canvas.wires[app->sch_canvas.nwires].net_index = 0;
+                    app->sch_canvas.nwires++;
+                }
+            }
+            if (s) sch_canvas_render(&app->sch_canvas);
             else DrawText("Drop a folder with .kicad_sch files", canvas_x + 20, cvy + 60, 14, GRAY);
             break;
         }
         case UI_PCB: {
             Pcb *pcb = (app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
-            if (pcb) draw_pcb(app, pcb, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22);
-            else DrawText("Drop a folder with .kicad_pcb files", canvas_x + 20, cvy + 60, 14, GRAY);
+            if (pcb) {
+                if (app->pcb_3d) {
+                    app->pcb3d_view.vp_x = canvas_x + 2;
+                    app->pcb3d_view.vp_y = cvy + 20;
+                    app->pcb3d_view.vp_w = canvas_w - 4;
+                    app->pcb3d_view.vp_h = cvh - 22;
+                    pcb3d_render(&app->pcb3d_view, pcb);
+                } else {
+                    draw_pcb(app, pcb, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22);
+                }
+            } else DrawText("Drop a folder with .kicad_pcb files", canvas_x + 20, cvy + 60, 14, GRAY);
             break;
         }
         case UI_3D: draw_3d(app, canvas_x + 2, cvy, canvas_w - 4, cvh); break;
@@ -822,6 +858,11 @@ static void render_professional_ui(App *app) {
         case UI_DESIGN: draw_design(app, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22); break;
         case UI_ASSIST: draw_assist(app, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22); break;
         case UI_PRINT: draw_print(app, canvas_x + 2, cvy + 20, canvas_w - 4, cvh - 22); break;
+        case UI_DIFF: {
+            app->diff_view.viewport = (Rectangle){ (float)canvas_x, (float)cvy, (float)canvas_w, (float)cvh };
+            diff_view_render(&app->diff_view);
+            break;
+        }
     }
 
     /* view cube top-right of canvas */
@@ -917,8 +958,14 @@ void app_init(App *app) {
     farm_init(&app->farm, "build\\farm");
     app->pcb_fp_sel = -1;
     app->pcb_fp_drag = 0;
+    undo_init(&app->undo_stack, 1000);
+    shortcuts_init(&app->shortcuts);
+    pcb3d_init(&app->pcb3d_view, 0, 0);
+    app->pcb_3d = true;
     snprintf(app->printer_ip, sizeof(app->printer_ip), "%s", "localhost:7125");
     if (app->farm.n_printers == 0) farm_seed_demo(&app->farm);
+    sch_canvas_init(&app->sch_canvas, 0, 0, 800, 600);
+    diff_view_init(&app->diff_view);
 }
 
 void app_free(App *app) {
@@ -930,6 +977,7 @@ void app_free(App *app) {
     fit_report_free(&app->fit);
     gen_design_free(&app->gen);
     farm_free(&app->farm);
+    undo_free(&app->undo_stack);
 }
 
 bool app_open_folder(App *app, const char *dir) {
@@ -1003,48 +1051,195 @@ void app_frame(App *app) {
             if (app->cam_dist < 20) app->cam_dist = 20;
             if (app->cam_dist > 2000) app->cam_dist = 2000;
         }
-        // mode switching
-        if (IsKeyPressed(KEY_ONE)) { app->mode = UI_SCH; app->fit_dirty = true; }
-        if (IsKeyPressed(KEY_TWO)) { app->mode = UI_PCB; app->fit_dirty = true; }
-        if (IsKeyPressed(KEY_THREE)) { app->mode = UI_3D; }
-        if (IsKeyPressed(KEY_FOUR)) { app->mode = UI_FIT; run_fit(app); }
-        if (IsKeyPressed(KEY_FIVE)) { app->mode = UI_DESIGN; }
-        if (IsKeyPressed(KEY_SIX)) { app->mode = UI_ASSIST; }
-        if (IsKeyPressed(KEY_SEVEN)) { app->mode = UI_PRINT; }
-        if (IsKeyPressed(KEY_F5)) { ui_extract_docs(app); }
-        if (IsKeyPressed(KEY_SLASH) || IsKeyPressed(KEY_F1)) app->show_help = !app->show_help;
-        if (app->show_help && IsKeyPressed(KEY_ESCAPE)) app->show_help = false;
-        // M: measure toggle in 3D
-        if (IsKeyPressed(KEY_M) && app->mode == UI_3D) {
-            app->measure_mode = !app->measure_mode;
-            if (!app->measure_mode) app->meas_step = 0;
-            else app->meas_step = 0;
-        }
-        if (IsKeyPressed(KEY_W) && app->mode == UI_3D) app->wireframe_3d = !app->wireframe_3d;
-        if (IsKeyPressed(KEY_G)) { grid_toggle(); char ms[32]; snprintf(ms, sizeof(ms), "Grid: %.2f mm", grid_size_current()); free(app->status); app->status = str_dup(ms); }
-        if (IsKeyPressed(KEY_ZERO)) { app->multiview_mode = !app->multiview_mode; free(app->status); app->status = app->multiview_mode ? str_dup("Multi-view: EDA+CAD+Slicer+Farm") : str_dup("Single view"); }
-        if (IsKeyPressed(KEY_R) && app->mode == UI_3D) {
-            int ai = assembly_demo_robot(&app->proj);
-            free(app->status);
-            app->status = str_dup(ai >= 0 ? "built demo assembly with revolute joint (press R again to rebuild)" : "need 2+ cad models for the joint demo");
-        }
-        // F key: zoom to selected model in 3D
-        if (IsKeyPressed(KEY_F) && app->mode == UI_3D && app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) {
-            CadModel *cm = &app->proj.cad_models.v[app->sel_cad];
-            if (cm->mesh.valid) {
-                float cx = (cm->mesh.bmin.x + cm->mesh.bmax.x) * 0.5f;
-                float cy = (cm->mesh.bmin.y + cm->mesh.bmax.y) * 0.5f;
-                float cz = (cm->mesh.bmin.z + cm->mesh.bmax.z) * 0.5f;
-                float dx = cm->mesh.bmax.x - cm->mesh.bmin.x;
-                float dy = cm->mesh.bmax.y - cm->mesh.bmin.y;
-                float dz = cm->mesh.bmax.z - cm->mesh.bmin.z;
-                float size = (dx > dy) ? (dx > dz ? dx : dz) : (dy > dz ? dy : dz);
-                app->pan.x = cx; app->pan.y = cy;
-                app->cam_dist = size * 2.5f;
-                if (app->cam_dist < 20) app->cam_dist = 20;
+        /* === Shortcuts engine dispatch === */
+        {
+            ShortcutAction sa = shortcuts_poll(&app->shortcuts);
+            switch (sa) {
+                /* View controls */
+                case SHORTCUT_PAN_LEFT:   app->pan.x -= 10.0f / app->zoom; break;
+                case SHORTCUT_PAN_RIGHT:  app->pan.x += 10.0f / app->zoom; break;
+                case SHORTCUT_PAN_UP:     app->pan.y -= 10.0f / app->zoom; break;
+                case SHORTCUT_PAN_DOWN:   app->pan.y += 10.0f / app->zoom; break;
+                case SHORTCUT_ZOOM_IN:    app->zoom *= 1.05f; break;
+                case SHORTCUT_ZOOM_OUT:   app->zoom *= 0.95f; break;
+                case SHORTCUT_ZOOM_FIT:
+                    if (app->mode == UI_3D && app->sel_cad >= 0 && app->sel_cad < app->proj.cad_models.len) {
+                        CadModel *cm = &app->proj.cad_models.v[app->sel_cad];
+                        if (cm->mesh.valid) {
+                            float cx = (cm->mesh.bmin.x + cm->mesh.bmax.x) * 0.5f;
+                            float cy = (cm->mesh.bmin.y + cm->mesh.bmax.y) * 0.5f;
+                            float dx = cm->mesh.bmax.x - cm->mesh.bmin.x;
+                            float dy = cm->mesh.bmax.y - cm->mesh.bmin.y;
+                            float dz = cm->mesh.bmax.z - cm->mesh.bmin.z;
+                            float size = (dx > dy) ? (dx > dz ? dx : dz) : (dy > dz ? dy : dz);
+                            app->pan.x = cx; app->pan.y = cy;
+                            app->cam_dist = size * 2.5f;
+                            if (app->cam_dist < 20) app->cam_dist = 20;
+                        }
+                    }
+                    break;
+                case SHORTCUT_VIEW_RESET:
+                    app->yaw = 0.0f; app->pitch = -30.0f; app->cam_dist = 300.0f;
+                    app->pan = (V2){0,0}; app->zoom = 1.0f;
+                    break;
+                /* View presets (numpad) */
+                case SHORTCUT_VIEW_TOP:    app->yaw = 0.0f;  app->pitch = -90.0f; break;
+                case SHORTCUT_VIEW_FRONT:  app->yaw = 0.0f;  app->pitch = 0.0f;   break;
+                case SHORTCUT_VIEW_RIGHT:  app->yaw = -90.0f; app->pitch = 0.0f;   break;
+                case SHORTCUT_VIEW_3D:     app->yaw = 0.0f;  app->pitch = -30.0f;  break;
+                /* Edit */
+                case SHORTCUT_UNDO:
+                    if (undo_step(&app->undo_stack)) {
+                        free(app->status);
+                        app->status = str_dup(undo_peek_desc(&app->undo_stack));
+                    }
+                    break;
+                case SHORTCUT_REDO:
+                    if (redo_step(&app->undo_stack)) {
+                        free(app->status);
+                        app->status = str_dup(undo_peek_desc(&app->undo_stack));
+                    }
+                    break;
+                case SHORTCUT_COPY:   ribbon_status_msg("Copy");    break;
+                case SHORTCUT_PASTE:  ribbon_status_msg("Paste");   break;
+                case SHORTCUT_CUT:    ribbon_status_msg("Cut");     break;
+                case SHORTCUT_DELETE: ribbon_status_msg("Delete");  break;
+                case SHORTCUT_SELECT_ALL: ribbon_status_msg("Select All"); break;
+                case SHORTCUT_ESCAPE:
+                    if (app->show_help) app->show_help = false;
+                    else {
+                        free(app->status); app->status = str_dup("cancelled");
+                        app->meas_step = 0; app->measure_mode = false;
+                        app->pcb_fp_drag = 0;
+                    }
+                    break;
+                case SHORTCUT_ENTER:
+                    free(app->status); app->status = str_dup("confirmed");
+                    break;
+                /* Tools */
+                case SHORTCUT_TOOL_MOVE:
+                    if (app->mode == UI_3D) {
+                        app->measure_mode = !app->measure_mode;
+                        if (!app->measure_mode) app->meas_step = 0;
+                        else app->meas_step = 0;
+                    }
+                    break;
+                case SHORTCUT_TOOL_ROTATE:
+                    if (app->mode == UI_3D) {
+                        int ai = assembly_demo_robot(&app->proj);
+                        free(app->status);
+                        app->status = str_dup(ai >= 0 ? "built demo assembly with revolute joint" : "need 2+ cad models for the joint demo");
+                    }
+                    break;
+                case SHORTCUT_TOOL_SCALE:    break;
+                case SHORTCUT_TOOL_WIRE:
+                    if (app->mode == UI_3D) app->wireframe_3d = !app->wireframe_3d;
+                    else if (app->mode == UI_PCB && app->pcb_3d) pcb3d_toggle_wireframe(&app->pcb3d_view);
+                    break;
+                case SHORTCUT_TOOL_TRACK:
+                    if (app->mode == UI_PCB) app->route_mode = !app->route_mode;
+                    break;
+                case SHORTCUT_TOOL_PLACE_VIA:
+                    if (app->mode == UI_PCB) {
+                        Pcb *pcb = (app->sel_pcb >= 0 && app->sel_pcb < app->proj.pcbs.len) ? &app->proj.pcbs.v[app->sel_pcb] : NULL;
+                        if (pcb) { via_add_typed(pcb, v2(50, 50), 0.8f, 1.6f, 0, 1, "vcc"); ribbon_status_msg("Via placed"); }
+                    }
+                    break;
+                case SHORTCUT_TOOL_DIMENSION:  break;
+                case SHORTCUT_TOOL_MEASURE:    break;
+                /* File */
+                case SHORTCUT_NEW:     cb_file_new();     break;
+                case SHORTCUT_OPEN:    cb_file_open();    break;
+                case SHORTCUT_SAVE:    cb_file_save();    break;
+                case SHORTCUT_SAVE_AS: {
+                    char v360_path[512];
+                    snprintf(v360_path, sizeof(v360_path), "%s.v360", app->proj.name ? app->proj.name : "project");
+                    if (v360_save(&app->proj, v360_path)) {
+                        free(app->status); app->status = str_dup("Saved as .v360 bundle");
+                    } else {
+                        free(app->status); app->status = str_dup("V360 save failed");
+                    }
+                    break;
+                }
+                case SHORTCUT_EXPORT:  cb_file_export();  break;
+                case SHORTCUT_IMPORT:  ribbon_status_msg("Import"); break;
+                /* Tabs */
+                case SHORTCUT_SCHEMATIC: app->mode = UI_SCH; app->fit_dirty = true; break;
+                case SHORTCUT_PCB:       app->mode = UI_PCB; app->fit_dirty = true; break;
+                case SHORTCUT_3D_VIEW:   app->mode = UI_3D;  break;
+                case SHORTCUT_SLICER:    app->mode = UI_PRINT; break;
+                case SHORTCUT_FARM:      app->mode = UI_PRINT; break;
+                /* Misc */
+                case SHORTCUT_GRID_TOGGLE: {
+                    grid_toggle();
+                    char ms[32]; snprintf(ms, sizeof(ms), "Grid: %.2f mm", grid_size_current());
+                    free(app->status); app->status = str_dup(ms);
+                    break;
+                }
+                case SHORTCUT_SNAP_TOGGLE:
+                    free(app->status); app->status = str_dup("Snap toggled");
+                    break;
+                case SHORTCUT_CONSOLE_TOGGLE:
+                    free(app->status); app->status = str_dup("Console toggled");
+                    break;
+                case SHORTCUT_PROPERTIES_TOGGLE:
+                    free(app->status); app->status = str_dup("Properties toggled");
+                    break;
+                case SHORTCUT_FULLSCREEN:
+                    if (IsWindowFullscreen()) {
+                        ToggleFullscreen();
+                        free(app->status); app->status = str_dup("Windowed");
+                    } else {
+                        ToggleFullscreen();
+                        free(app->status); app->status = str_dup("Fullscreen");
+                    }
+                    break;
+                case SHORTCUT_IMPORT_WEB: {
+                    CadMesh mesh;
+                    memset(&mesh, 0, sizeof(mesh));
+                    if (stl_download_import("https://www.thingiverse.com/thing:0", &mesh)) {
+                        CadModel cm;
+                        memset(&cm, 0, sizeof(cm));
+                        cm.id = str_dup("web_import");
+                        cm.name = str_dup("Web Import");
+                        cm.mesh = mesh;
+                        arr_push(app->proj.cad_models, cm);
+                        app->cad_gen++;
+                        free(app->status); app->status = str_dup("Web STL imported");
+                    } else {
+                        free(app->status); app->status = str_dup("Web import failed (use a valid URL)");
+                    }
+                    break;
+                }
+                case SHORTCUT_RUN_LUA: {
+                    static LuaEngine lua_eng = {0};
+                    static int lua_inited = 0;
+                    if (!lua_inited) { lua_init(&lua_eng); lua_register_api(&lua_eng); lua_inited = 1; }
+                    const char *test_script =
+                        "x = 5\n"
+                        "y = x + 3\n"
+                        "print(\"Hello from Lua!\")\n"
+                        "print(\"x =\", x)\n"
+                        "print(\"y =\", y)\n"
+                        "volt.info()\n"
+                        "for i=1,5 do print(\"Loop:\", i) end\n"
+                        "if x > 3 then print(\"x is big\") else print(\"x is small\") end\n";
+                    lua_run_string(&lua_eng, test_script);
+                    char *output = lua_get_output(&lua_eng);
+                    free(app->status); app->status = output;
+                    break;
+                }
+                default: break;
             }
         }
-        // open folder via drag+drop
+        /* Legacy / extended keys not in shortcuts engine */
+        if (IsKeyPressed(KEY_SIX)) { app->mode = UI_ASSIST; }
+        if (IsKeyPressed(KEY_SEVEN)) { app->mode = UI_DESIGN; }
+        if (IsKeyPressed(KEY_FOUR)) { run_fit(app); app->mode = UI_FIT; }
+        if (IsKeyPressed(KEY_FIVE)) { ui_extract_docs(app); }
+        if (IsKeyPressed(KEY_SLASH) || IsKeyPressed(KEY_F1)) app->show_help = !app->show_help;
+        if (IsKeyPressed(KEY_ZERO)) { app->multiview_mode = !app->multiview_mode; free(app->status); app->status = app->multiview_mode ? str_dup("Multi-view: EDA+CAD+Slicer+Farm") : str_dup("Single view"); }
+        /* open folder via drag+drop */
         if (IsFileDropped()) {
             FilePathList files = LoadDroppedFiles();
             if (files.count > 0 && DirectoryExists(files.paths[0])) {
@@ -1053,6 +1248,24 @@ void app_frame(App *app) {
             UnloadDroppedFiles(files);
         }
         if (app->fit_dirty && (app->mode == UI_FIT)) { run_fit(app); }
+
+        /* PCB 3D view camera update and toggle */
+        if (app->mode == UI_PCB && app->pcb_3d) {
+            pcb3d_update_camera(&app->pcb3d_view);
+        }
+        if (app->mode == UI_PCB && IsKeyPressed(KEY_B)) {
+            app->pcb_3d = !app->pcb_3d;
+        }
+
+        /* sch canvas update */
+        if (app->mode == UI_SCH) {
+            sch_canvas_update(&app->sch_canvas, &app->proj);
+        }
+
+        /* diff view cycle */
+        if (app->mode == UI_DIFF && IsKeyPressed(KEY_I)) {
+            diff_view_cycle(&app->diff_view);
+        }
 
         BeginDrawing();
         ClearBackground((Color){ 28, 30, 34, 255 });
@@ -1117,42 +1330,35 @@ void app_frame(App *app) {
             DrawText("Keyboard Shortcuts", mx + 12, my + 8, 20, WHITE);
             DrawText("Press ? / Esc to close", mx + 500, my + 12, 14, DARKGRAY);
             my += 36;
-            const char *lines[] = {
-                "1  Schematic     2D canvas view of schematics",
-                "2  PCB            2D canvas view of boards  (click footprint to drag)",
-                "3  3D View        Orbit/zoom 3D view  (click model to select)",
-                "4  Fit Report     Assembly + PCB clearance checks",
-                "5  Design         Parametric design + generative topology opt",
-                "6  Assistant      Natural-language part creation",
-                "7  Print Center   Enclosure gen + Slicer + Print Farm",
-                "",
-                "Global:",
-                "  ? / F1   This help overlay            F5   Parse datasheets (Ollama)",
-                "  R        Build joint demo (3D mode)   F     Zoom to selected model (3D)",
-                "",
-                "Navigation:",
-                "  Middle-drag   Pan canvas (2D) / Orbit (3D)",
-                "  Mouse wheel   Zoom canvas (2D) / Camera distance (3D)",
-                "",
-                "PCB Editing (mode 2):",
-                "  Click footprint   Start dragging      Release   Place footprint",
-                "",
-                "3D View (mode 3):",
-                "  Left-click model  Select              F key    Focus on selection",
-                "",
-                "Print Center (mode 7):",
-                "  Generate Enclosure  Build enclosure for current PCB",
-                "  Print Enclosure     Slice + emit G-code for enclosure",
-                "  Print CAD Model     Slice + emit G-code for selected CAD",
-                "  Save Settings       Persist slicer settings to disk",
-                "",
-                NULL
-            };
-            for (int i = 0; lines[i]; i++) {
-                if (lines[i][0] == '\0') { my += 10; continue; }
-                Color c = (lines[i][0] >= '1' && lines[i][0] <= '7') ? YELLOW : LIGHTGRAY;
-                DrawText(lines[i], mx + 12, my, 13, c);
-                my += 17;
+            {
+                static const char *sections[] = {
+                    "Tabs", "File", "Edit", "Tools", "View", "Misc", NULL
+                };
+                static ShortcutAction section_start[] = {
+                    SHORTCUT_SCHEMATIC, SHORTCUT_NEW, SHORTCUT_UNDO,
+                    SHORTCUT_TOOL_MOVE, SHORTCUT_PAN_LEFT,
+                    SHORTCUT_GRID_TOGGLE
+                };
+                int si, ai, col_w = 320;
+                for (si = 0; sections[si]; si++) {
+                    int sec_start = section_start[si];
+                    int sec_end   = (sections[si+1]) ? section_start[si+1] : SHORTCUT_COUNT;
+                    DrawText(sections[si], mx + 12 + (si % 2) * col_w, my, 15, YELLOW);
+                    my += 18;
+                    for (ai = sec_start; ai < sec_end; ai++) {
+                        const ShortcutBinding *b = shortcuts_get(&app->shortcuts, (ShortcutAction)ai);
+                        if (!b || !b->label || !b->desc) continue;
+                        char lbuf[64];
+                        snprintf(lbuf, sizeof(lbuf), "%-16s %s", b->label, b->desc);
+                        DrawText(lbuf, mx + 12 + (si % 2) * col_w, my, 13, LIGHTGRAY);
+                        my += 16;
+                    }
+                    if (si % 2 == 1) {
+                        my += 4;
+                    } else {
+                        my = 40 + 36 + 18;
+                    }
+                }
             }
         }
         EndDrawing();

@@ -7,8 +7,13 @@
 #include "../slicer/slicer.h"
 #include "../design/co_design.h"
 #include "../slicer/farm.h"
+#include "../core/undoredo.h"
+#include "shortcuts.h"
+#include "pcb3d.h"
+#include "sch_canvas.h"
+#include "diff_view.h"
 
-typedef enum { UI_SCH, UI_PCB, UI_3D, UI_FIT, UI_DESIGN, UI_ASSIST, UI_PRINT } UIMode;
+typedef enum { UI_SCH, UI_PCB, UI_3D, UI_FIT, UI_DESIGN, UI_ASSIST, UI_PRINT, UI_DIFF } UIMode;
 
 typedef struct {
     Project proj;
@@ -67,6 +72,12 @@ typedef struct {
     bool route_has_start;   // whether first point is placed
     char sidebar_filter[64];
     int multiview_mode;     // 0=single, 1=tiled 4-panel layout // sidebar search filter text (empty = show all)
+    UndoStack undo_stack;
+    ShortcutMap shortcuts;
+    Pcb3DView pcb3d_view;
+    bool pcb_3d;
+    SchCanvas sch_canvas;
+    DiffView diff_view;
 } App;
 
 void app_init(App *app);
