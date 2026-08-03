@@ -26,10 +26,24 @@ typedef enum {
     AI_CMD_CREATE_BOX,
     AI_CMD_CREATE_CYLINDER,
     AI_CMD_CREATE_SPHERE,
+    AI_CMD_CREATE_TORUS,
+    AI_CMD_CREATE_CONE,
+    AI_CMD_CREATE_WEDGE,
+    AI_CMD_CREATE_PYRAMID,
+    AI_CMD_TRANSFORM_MESH,
+    AI_CMD_DELETE_MESH,
+    AI_CMD_DUPLICATE_MESH,
+    AI_CMD_HOLLOW_MESH,
+    AI_CMD_MIRROR_MESH,
+    AI_CMD_FILLET_MESH,
+    AI_CMD_CHAMFER_MESH,
+    AI_CMD_ALIGN_MESH,
+    AI_CMD_ARRAY_MESH,
     AI_CMD_SLICE_MESH,
     AI_CMD_EXPORT_GCODE,
     AI_CMD_BOOLEAN_UNION,
     AI_CMD_BOOLEAN_SUBTRACT,
+    AI_CMD_BOOLEAN_INTERSECT,
     AI_CMD_ROUTE_NET,
     AI_CMD_ADD_TEXT,
     AI_CMD_NONE
@@ -47,10 +61,12 @@ typedef struct {
     int layer;
     char property[32];
     char value[128];
-    float param1, param2, param3;
+    float param1, param2, param3, param4, param5;
     int segments;
     int target_index;
+    int int_param1, int_param2;
     char pcb_id[32];
+    char extra_str[64];
 } AIEditCommand;
 
 typedef struct {

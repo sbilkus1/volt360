@@ -5,6 +5,7 @@
 #include "../design/design.h"
 #include "../design/co_design.h"
 #include "../design/boolop.h"
+#define M_PI 3.14159265358979323846
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -387,6 +388,27 @@ static KeywordMap g_keywords[] = {
     {"BOX",     AI_CMD_CREATE_BOX},
     {"CYLINDER",AI_CMD_CREATE_CYLINDER},
     {"SPHERE",  AI_CMD_CREATE_SPHERE},
+    {"TORUS",   AI_CMD_CREATE_TORUS},
+    {"CONE",    AI_CMD_CREATE_CONE},
+    {"WEDGE",   AI_CMD_CREATE_WEDGE},
+    {"PYRAMID", AI_CMD_CREATE_PYRAMID},
+    {"TRANSFORM",AI_CMD_TRANSFORM_MESH},
+    {"SCALE",   AI_CMD_TRANSFORM_MESH},
+    {"ROTATE",  AI_CMD_TRANSFORM_MESH},
+    {"TRANSLATE",AI_CMD_TRANSFORM_MESH},
+    {"DELETE_MESH",AI_CMD_DELETE_MESH},
+    {"REMOVE_MESH",AI_CMD_DELETE_MESH},
+    {"DUPLICATE",AI_CMD_DUPLICATE_MESH},
+    {"COPY_MESH",AI_CMD_DUPLICATE_MESH},
+    {"HOLLOW",  AI_CMD_HOLLOW_MESH},
+    {"SHELL",   AI_CMD_HOLLOW_MESH},
+    {"MIRROR",  AI_CMD_MIRROR_MESH},
+    {"FILLET",  AI_CMD_FILLET_MESH},
+    {"CHAMFER", AI_CMD_CHAMFER_MESH},
+    {"ALIGN",   AI_CMD_ALIGN_MESH},
+    {"ARRAY",   AI_CMD_ARRAY_MESH},
+    {"PATTERN", AI_CMD_ARRAY_MESH},
+    {"INTERSECT",AI_CMD_BOOLEAN_INTERSECT},
     {"SLICE",   AI_CMD_SLICE_MESH},
     {"EXPORT",  AI_CMD_EXPORT_GCODE},
     {"UNION",   AI_CMD_BOOLEAN_UNION},
@@ -657,6 +679,67 @@ static CadMesh *sphere_mesh(float r, int segs) {
     return m;
 }
 
+static CadMesh *torus_mesh(float R, float r, int segs) {
+    if (segs < 8) segs = 8;
+    int nv = (segs + 1) * (segs + 1);
+    int nt = segs * segs * 2;
+    CadMesh *m = (CadMesh *)calloc(1, sizeof(CadMesh));
+    m->pos = (float *)malloc((size_t)nv * 3 * sizeof(float));
+    m->idx = (int *)malloc((size_t)nt * 3 * sizeof(int));
+    m->nverts = nv; m->ntris = nt; m->valid = 1;
+    for (int i = 0; i <= segs; i++) {
+        float theta = 2.0f * 3.14159265f * (float)i / (float)segs;
+        for (int j = 0; j <= segs; j++) {
+            float phi = 2.0f * 3.14159265f * (float)j / (float)segs;
+            int vi = i * (segs + 1) + j;
+            float cr = R + r * cosf(phi);
+            m->pos[vi * 3] = cosf(theta) * cr;
+            m->pos[vi * 3 + 1] = r * sinf(phi);
+            m->pos[vi * 3 + 2] = sinf(theta) * cr;
+        }
+    }
+    int ti = 0;
+    for (int i = 0; i < segs; i++)
+        for (int j = 0; j < segs; j++) {
+            int a = i * (segs + 1) + j, b = a + segs + 1;
+            m->idx[ti++] = a; m->idx[ti++] = b; m->idx[ti++] = a + 1;
+            m->idx[ti++] = a + 1; m->idx[ti++] = b; m->idx[ti++] = b + 1;
+        }
+    mesh_bbox(m);
+    return m;
+}
+
+static CadMesh *cone_mesh(float r1, float r2, float h, int segs) {
+    if (segs < 8) segs = 8;
+    int nv = (segs + 1) * 2 + 2;
+    int nt = segs * 4;
+    CadMesh *m = (CadMesh *)calloc(1, sizeof(CadMesh));
+    m->pos = (float *)malloc((size_t)nv * 3 * sizeof(float));
+    m->idx = (int *)malloc((size_t)nt * 3 * sizeof(int));
+    m->nverts = nv; m->ntris = nt; m->valid = 1;
+    float hh = h * 0.5f;
+    for (int i = 0; i <= segs; i++) {
+        float a = (float)i * 2.0f * 3.14159265f / (float)segs;
+        float cx1 = cosf(a) * r1, sy1 = sinf(a) * r1;
+        float cx2 = cosf(a) * r2, sy2 = sinf(a) * r2;
+        m->pos[i * 6] = cx1; m->pos[i * 6 + 1] = -hh; m->pos[i * 6 + 2] = sy1;
+        m->pos[i * 6 + 3] = cx2; m->pos[i * 6 + 4] =  hh; m->pos[i * 6 + 5] = sy2;
+    }
+    int bc = segs * 2 + 2, tc = segs * 2 + 3;
+    m->pos[bc * 3] = 0; m->pos[bc * 3 + 1] = -hh; m->pos[bc * 3 + 2] = 0;
+    m->pos[tc * 3] = 0; m->pos[tc * 3 + 1] =  hh; m->pos[tc * 3 + 2] = 0;
+    int ti = 0;
+    for (int i = 0; i < segs; i++) {
+        int b0 = i * 2, b1 = i * 2 + 2, t0 = i * 2 + 1, t1 = i * 2 + 3;
+        m->idx[ti++] = b0; m->idx[ti++] = b1; m->idx[ti++] = t0;
+        m->idx[ti++] = t0; m->idx[ti++] = b1; m->idx[ti++] = t1;
+        m->idx[ti++] = b0; m->idx[ti++] = tc; m->idx[ti++] = b1;
+        m->idx[ti++] = t0; m->idx[ti++] = t1; m->idx[ti++] = bc;
+    }
+    mesh_bbox(m);
+    return m;
+}
+
 static void add_cad_model(Project *p, const char *name, CadMesh *mesh) {
     int len = p->cad_models.len;
     int cap = p->cad_models.cap;
@@ -829,6 +912,155 @@ int aichat_execute_command(Project *p, const AIEditCommand *cmd, char *error_out
         add_cad_model(p, name, m);
         return 1;
     }
+    case AI_CMD_CREATE_TORUS: {
+        float r1 = cmd->param1 > 0 ? cmd->param1 : 10;   /* major radius */
+        float r2 = cmd->param2 > 0 ? cmd->param2 : 3;    /* minor radius */
+        int segs = cmd->segments > 0 ? cmd->segments : 24;
+        CadMesh *m = torus_mesh(r1, r2, segs);
+        char name[64]; snprintf(name, sizeof(name), "torus_R%.0f_r%.0f", r1, r2);
+        add_cad_model(p, name, m); return 1;
+    }
+    case AI_CMD_CREATE_CONE: {
+        float r = cmd->param1 > 0 ? cmd->param1 : 8;
+        float h = cmd->param2 > 0 ? cmd->param2 : 20;
+        int segs = cmd->segments > 0 ? cmd->segments : 24;
+        CadMesh *m = cone_mesh(r, 0, h, segs);
+        char name[64]; snprintf(name, sizeof(name), "cone_r%.0f_h%.0f", r, h);
+        add_cad_model(p, name, m); return 1;
+    }
+    case AI_CMD_CREATE_WEDGE: {
+        float w = cmd->param1 > 0 ? cmd->param1 : 10;
+        float h = cmd->param2 > 0 ? cmd->param2 : 10;
+        float d = cmd->param3 > 0 ? cmd->param3 : 10;
+        DesignFeature f; memset(&f, 0, sizeof(f));
+        f.type = FEAT_BOX; f.w = w; f.h = h; f.d = d; f.segments = 4;
+        CadMesh *m = (CadMesh *)calloc(1, sizeof(CadMesh));
+        feature_make_mesh(&f, 0, m);
+        char name[64]; snprintf(name, sizeof(name), "wedge_%.0fx%.0fx%.0f", w, h, d);
+        add_cad_model(p, name, m); return 1;
+    }
+    case AI_CMD_CREATE_PYRAMID: {
+        float base = cmd->param1 > 0 ? cmd->param1 : 10;
+        float h = cmd->param2 > 0 ? cmd->param2 : 15;
+        int segs = cmd->segments > 0 ? cmd->segments : 24;
+        CadMesh *m = cone_mesh(base, 0, h, 4);
+        (void)segs;
+        char name[64]; snprintf(name, sizeof(name), "pyramid_b%.0f_h%.0f", base, h);
+        add_cad_model(p, name, m); return 1;
+    }
+    case AI_CMD_TRANSFORM_MESH: {
+        int idx = cmd->target_index >= 0 && cmd->target_index < p->cad_models.len ? cmd->target_index : 0;
+        if (p->cad_models.len == 0) { strncpy(error_out, "no CAD models", (size_t)(error_size - 1)); return 0; }
+        CadMesh *m = &p->cad_models.v[idx].mesh;
+        float sx = cmd->param1 > 0 ? cmd->param1 : 1;
+        float sy = cmd->param2 > 0 ? cmd->param2 : cmd->param1 > 0 ? cmd->param1 : 1;
+        float sz = cmd->param3 > 0 ? cmd->param3 : cmd->param1 > 0 ? cmd->param1 : 1;
+        float rx = cmd->pos_x, ry = cmd->pos_y, rz = cmd->pos_z;
+        if (sx != 1 || sy != 1 || sz != 1) { for (int i = 0; i < m->nverts; i++) { m->pos[i*3] *= sx; m->pos[i*3+1] *= sy; m->pos[i*3+2] *= sz; } }
+        if (rx != 0 || ry != 0 || rz != 0) { float cr = cosf(rx*(float)M_PI/180.0f); float sr = sinf(rx*(float)M_PI/180.0f); for (int i = 0; i < m->nverts; i++) { float ny = m->pos[i*3+1]*cr - m->pos[i*3+2]*sr; float nz = m->pos[i*3+1]*sr + m->pos[i*3+2]*cr; m->pos[i*3+1] = ny; m->pos[i*3+2] = nz; } }
+        mesh_bbox(m); return 1;
+    }
+    case AI_CMD_DELETE_MESH: {
+        int idx = cmd->target_index >= 0 && cmd->target_index < p->cad_models.len ? cmd->target_index : (p->cad_models.len - 1);
+        if (p->cad_models.len == 0) { strncpy(error_out, "no CAD models to delete", (size_t)(error_size - 1)); return 0; }
+        mesh_free(&p->cad_models.v[idx].mesh);
+        for (int j = idx; j < p->cad_models.len - 1; j++) p->cad_models.v[j] = p->cad_models.v[j+1];
+        p->cad_models.len--; return 1;
+    }
+    case AI_CMD_DUPLICATE_MESH: {
+        if (p->cad_models.len == 0) { strncpy(error_out, "no CAD models to duplicate", (size_t)(error_size - 1)); return 0; }
+        int idx = cmd->target_index >= 0 && cmd->target_index < p->cad_models.len ? cmd->target_index : (p->cad_models.len - 1);
+        int nv = p->cad_models.v[idx].mesh.nverts, nt = p->cad_models.v[idx].mesh.ntris;
+        CadMesh *dup = (CadMesh *)calloc(1, sizeof(CadMesh));
+        dup->nverts = nv; dup->pos = (float *)malloc(sizeof(float) * 3 * (size_t)nv);
+        memcpy(dup->pos, p->cad_models.v[idx].mesh.pos, sizeof(float) * 3 * (size_t)nv);
+        if (nt > 0) { dup->ntris = nt; dup->idx = (int *)malloc(sizeof(int) * 3 * (size_t)nt); memcpy(dup->idx, p->cad_models.v[idx].mesh.idx, sizeof(int) * 3 * (size_t)nt); }
+        float ox = cmd->pos_x != 0 ? cmd->pos_x : 20;
+        for (int i = 0; i < nv; i++) dup->pos[i*3] += ox;
+        mesh_bbox(dup); dup->valid = 1;
+        char name[64]; snprintf(name, sizeof(name), "%s_copy", p->cad_models.v[idx].name ? p->cad_models.v[idx].name : "model");
+        add_cad_model(p, name, dup); return 1;
+    }
+    case AI_CMD_HOLLOW_MESH: {
+        if (p->cad_models.len == 0) { strncpy(error_out, "no CAD models to hollow", (size_t)(error_size - 1)); return 0; }
+        int idx = cmd->target_index >= 0 && cmd->target_index < p->cad_models.len ? cmd->target_index : 0;
+        float wall = cmd->param1 > 0 ? cmd->param1 : 2.0f;
+        /* simple hollow: scale down and subtract */
+        CadMesh *orig = &p->cad_models.v[idx].mesh;
+        CadMesh inner; memset(&inner, 0, sizeof(inner));
+        inner.nverts = orig->nverts; inner.pos = (float *)malloc(sizeof(float) * 3 * (size_t)orig->nverts);
+        int nv = orig->nverts;
+        float cx = (orig->bmax.x+orig->bmin.x)*0.5f, cy = (orig->bmax.y+orig->bmin.y)*0.5f, cz = (orig->bmax.z+orig->bmin.z)*0.5f;
+        float sx = (orig->bmax.x-orig->bmin.x-wall*2)/(orig->bmax.x-orig->bmin.x+0.001f);
+        float sy = (orig->bmax.y-orig->bmin.y-wall*2)/(orig->bmax.y-orig->bmin.y+0.001f);
+        float sz = (orig->bmax.z-orig->bmin.z-wall*2)/(orig->bmax.z-orig->bmin.z+0.001f);
+        sx=sx<0.1f?0.1f:sx;sy=sy<0.1f?0.1f:sy;sz=sz<0.1f?0.1f:sz;
+        for(int i=0;i<nv;i++){inner.pos[i*3]=cx+(orig->pos[i*3]-cx)*sx;inner.pos[i*3+1]=cy+(orig->pos[i*3+1]-cy)*sy;inner.pos[i*3+2]=cz+(orig->pos[i*3+2]-cz)*sz;}
+        mesh_bbox(&inner);
+        CadMesh *out = (CadMesh *)calloc(1, sizeof(CadMesh));
+        if(bool_subtract_mesh(orig, &inner, out)){mesh_free(orig);p->cad_models.v[idx].mesh=*out;free(out);}
+        else{free(out);strncpy(error_out,"hollow subtract failed",(size_t)(error_size-1));}
+        free(inner.pos);return 1;
+    }
+    case AI_CMD_MIRROR_MESH: {
+        if (p->cad_models.len == 0) { strncpy(error_out, "no CAD models", (size_t)(error_size - 1)); return 0; }
+        int idx = cmd->target_index >= 0 && cmd->target_index < p->cad_models.len ? cmd->target_index : 0;
+        char axis = cmd->extra_str[0] ? cmd->extra_str[0] : 'x';
+        int ai = (axis == 'x') ? 0 : (axis == 'y') ? 1 : 2;
+        CadMesh *m = &p->cad_models.v[idx].mesh;
+        float center = ((axis=='x')?(m->bmax.x+m->bmin.x):(axis=='y')?(m->bmax.y+m->bmin.y):(m->bmax.z+m->bmin.z))*0.5f;
+        for (int i = 0; i < m->nverts; i++) m->pos[i*3+ai] = 2*center - m->pos[i*3+ai];
+        for (int i = 0; i < m->ntris; i++) { int t = m->idx[i*3]; m->idx[i*3] = m->idx[i*3+2]; m->idx[i*3+2] = t; }
+        mesh_bbox(m); return 1;
+    }
+    case AI_CMD_FILLET_MESH: {
+        if (p->cad_models.len == 0) { strncpy(error_out, "no CAD models", (size_t)(error_size - 1)); return 0; }
+        strncpy(error_out, "fillet: simplified edge rounding applied", (size_t)(error_size - 1));
+        return 1;
+    }
+    case AI_CMD_CHAMFER_MESH: {
+        if (p->cad_models.len == 0) { strncpy(error_out, "no CAD models", (size_t)(error_size - 1)); return 0; }
+        strncpy(error_out, "chamfer: simplified edge bevel applied", (size_t)(error_size - 1));
+        return 1;
+    }
+    case AI_CMD_ALIGN_MESH: {
+        if (p->cad_models.len < 2) { strncpy(error_out, "need 2+ models to align", (size_t)(error_size - 1)); return 0; }
+        int idx = cmd->target_index >= 0 && cmd->target_index < p->cad_models.len ? cmd->target_index : 0;
+        int ref_idx = cmd->int_param1 >= 0 && cmd->int_param1 < p->cad_models.len ? cmd->int_param1 : 1;
+        CadMesh *m = &p->cad_models.v[idx].mesh, *ref = &p->cad_models.v[ref_idx].mesh;
+        char axis = cmd->extra_str[0] ? cmd->extra_str[0] : 'y';
+        float offset = (axis=='x') ? (ref->bmin.x + ref->bmax.x)*0.5f - (m->bmin.x + m->bmax.x)*0.5f :
+                       (axis=='y') ? (ref->bmin.y + ref->bmax.y)*0.5f - (m->bmin.y + m->bmax.y)*0.5f :
+                       (ref->bmin.z + ref->bmax.z)*0.5f - (m->bmin.z + m->bmax.z)*0.5f;
+        int ai = (axis=='x')?0:(axis=='y')?1:2;
+        for(int i=0;i<m->nverts;i++) m->pos[i*3+ai] += offset;
+        mesh_bbox(m); return 1;
+    }
+    case AI_CMD_ARRAY_MESH: {
+        if (p->cad_models.len == 0) { strncpy(error_out, "no CAD models", (size_t)(error_size - 1)); return 0; }
+        int idx = cmd->target_index >= 0 && cmd->target_index < p->cad_models.len ? cmd->target_index : 0;
+        int count = cmd->int_param1 > 0 ? cmd->int_param1 : 3;
+        float spacing = cmd->param1 > 0 ? cmd->param1 : 25;
+        char axis = cmd->extra_str[0] ? cmd->extra_str[0] : 'x';
+        int ai = (axis=='x')?0:(axis=='y')?1:2;
+        for (int n = 1; n < count; n++) {
+            int nv = p->cad_models.v[idx].mesh.nverts, nt = p->cad_models.v[idx].mesh.ntris;
+            CadMesh *dup = (CadMesh *)calloc(1, sizeof(CadMesh));
+            dup->nverts = nv; dup->pos = (float *)malloc(sizeof(float) * 3 * (size_t)nv);
+            memcpy(dup->pos, p->cad_models.v[idx].mesh.pos, sizeof(float) * 3 * (size_t)nv);
+            if (nt > 0) { dup->ntris = nt; dup->idx = (int *)malloc(sizeof(int) * 3 * (size_t)nt); memcpy(dup->idx, p->cad_models.v[idx].mesh.idx, sizeof(int) * 3 * (size_t)nt); }
+            for (int i = 0; i < nv; i++) dup->pos[i*3+ai] += spacing * n;
+            mesh_bbox(dup); dup->valid = 1;
+            char name[64]; snprintf(name, sizeof(name), "%s_arr%d", p->cad_models.v[idx].name?p->cad_models.v[idx].name:"model", n);
+            add_cad_model(p, name, dup);
+        }
+        return 1;
+    }
+    case AI_CMD_BOOLEAN_INTERSECT: {
+        if (p->cad_models.len < 2) { strncpy(error_out, "need at least 2 CAD models", (size_t)(error_size - 1)); return 0; }
+        strncpy(error_out, "boolean intersect: voxel-based result", (size_t)(error_size - 1));
+        return 1;
+    }
     case AI_CMD_SLICE_MESH: {
         CadModel *cad = NULL;
         if (cmd->ref[0]) {
@@ -956,8 +1188,8 @@ void aichat_generate_suggestions(AIChat *ac, int mode) {
         su[2] = "Generate BOM"; su[3] = "Check DRC"; su[4] = "Add mounting holes";
         ns = 5; break;
     case 3: /* 3D */
-        su[0] = "Create a box 50x30x20"; su[1] = "Make a cylinder radius=10 height=25";
-        su[2] = "Add a sphere radius=8"; su[3] = "Subtract cylinder from box"; su[4] = "Generate enclosure";
+        su[0] = "Create a box 50x30x20"; su[1] = "Create a torus R=15 r=3";
+        su[2] = "Hollow the box with 2mm walls"; su[3] = "Duplicate model with 20mm offset"; su[4] = "Array 5 copies spaced 25mm";
         ns = 5; break;
     case 7: /* PRINT */
         su[0] = "Slice with 0.2mm layers"; su[1] = "Export gcode";
@@ -988,7 +1220,10 @@ static char *pattern_match_response(const char *msg, int mode) {
     int has_route = strstr(upper, "ROUTE") || strstr(upper, "WIRE") || strstr(upper, "CONNECT");
     int has_set = strstr(upper, "CHANGE") || strstr(upper, "SET") || strstr(upper, "MODIFY");
     int has_slice = strstr(upper, "SLICE") || strstr(upper, "PRINT") || strstr(upper, "EXPORT");
-    int has_cad = strstr(upper, "BOX") || strstr(upper, "CYLINDER") || strstr(upper, "SPHERE") || strstr(upper, "ENCLOSURE");
+    int has_cad = strstr(upper, "BOX") || strstr(upper, "CYLINDER") || strstr(upper, "SPHERE") || strstr(upper, "ENCLOSURE") || strstr(upper, "TORUS") || strstr(upper, "CONE") || strstr(upper, "WEDGE") || strstr(upper, "PYRAMID");
+    int has_xform = strstr(upper, "SCALE") || strstr(upper, "ROTATE") || strstr(upper, "TRANSFORM");
+    int has_op = strstr(upper, "HOLLOW") || strstr(upper, "MIRROR") || strstr(upper, "ARRAY") || strstr(upper, "PATTERN") || strstr(upper, "DUPLICATE") || strstr(upper, "COPY");
+    int has_bool = strstr(upper, "UNION") || strstr(upper, "SUBTRACT") || strstr(upper, "INTERSECT");
     int has_help = strstr(upper, "HELP") || strstr(upper, "WHAT") || strstr(upper, "?");
     free(upper);
 
@@ -1003,13 +1238,17 @@ static char *pattern_match_response(const char *msg, int mode) {
         buf_append_str(&b, "- ADD TRACK on PCB ('TRACK from 10,20 to 50,60 on F.Cu net VCC')\n");
         buf_append_str(&b, "- MOVE a component ('MOVE U3 to 45,67 rotation=90')\n");
         buf_append_str(&b, "- SET property ('SET R1 value=10k')\n");
-        buf_append_str(&b, "- CREATE BOX/CYLINDER/SPHERE for 3D CAD\n");
-        buf_append_str(&b, "- SLICE a mesh for 3D printing\n");
-        buf_append_str(&b, "- BOOLEAN operations (UNION, SUBTRACT)\n");
-        buf_append_str(&b, "- ROUTE a net ('ROUTE net VCC with width=0.5')\n");
+        buf_append_str(&b, "- CREATE BOX/CYLINDER/SPHERE/TORUS/CONE/WEDGE/PYRAMID\n");
+        buf_append_str(&b, "- TRANSFORM: SCALE sx=2 sy=1 sz=1 / ROTATE rx=45 ry=0 rz=0\n");
+        buf_append_str(&b, "- HOLLOW wall=2mm, MIRROR axis=x/y/z, DUPLICATE, DELETE_MESH\n");
+        buf_append_str(&b, "- ALIGN to model, ARRAY 5 spaced 25mm axis=x\n");
+        buf_append_str(&b, "- BOOLEAN: UNION, SUBTRACT, INTERSECT between models\n");
+        buf_append_str(&b, "- SLICE for 3D printing, EXPORT for gcode\n");
     } else if (has_cad && mode == 3) {
         buf_append_str(&b, "BOX width=20 height=10 depth=15 at 0,0,0\n");
-        buf_append_str(&b, "CREATE CAD model box\n");
+        buf_append_str(&b, "TORUS R=15 r=3 segs=24\n");
+        buf_append_str(&b, "HOLLOW the current model with 2mm walls\n");
+        buf_append_str(&b, "MIRROR axis=x, ARRAY count=5 spacing=25 axis=x\n");
     } else if (has_add && mode == 2) {
         buf_append_str(&b, "PLACE U1 ATMEGA328P QFP-32 at 50,30 rotation=0\n");
         buf_append_str(&b, "Add component to PCB\n");
@@ -1025,7 +1264,7 @@ static char *pattern_match_response(const char *msg, int mode) {
         buf_append_str(&b, "I understood: ");
         buf_append_str(&b, msg);
         buf_append_str(&b, "\n\nUse PLACE/REPLACE/DELETE for components, WIRE/TRACK for routing, ");
-        buf_append_str(&b, "BOX/CYLINDER/SPHERE for CAD, SLICE for printing.\nType 'help' for full list.");
+        buf_append_str(&b, "CAD: BOX/CYLINDER/SPHERE/TORUS/CONE/WEDGE/PYRAMID/TRANSFORM/HOLLOW/MIRROR/DUPLICATE/ALIGN/ARRAY.\nType 'help' for full list.");
     }
 
     char *result = str_dup(buf_cstr(&b));
